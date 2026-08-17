@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from .extract.panels import included_labels
 from .models import PanelDesign, PanelEntry, PurchaseOrderResult
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .designer.bom import Bom
 
 PO_FIELDS = [
     ("line_no", "Line"),
@@ -279,3 +282,68 @@ def designs_csv(designs: Sequence[PanelDesign]) -> bytes:
                 str(index + 1), lines[0], lines[1], icon["name"] if icon else "",
             ])
     return _csv_bytes(rows)
+
+
+def bom_csv(bom: "Bom") -> bytes:
+    """The bill of materials as an order-ready CSV."""
+    rows: List[List[str]] = [
+        ["Part code", "Description", "Qty", "Unit", "Rate", "Amount", "Panels"]
+    ]
+    for line in bom.lines:
+        rows.append([
+            line.part_code, line.description, f"{line.quantity:g}", line.unit,
+            f"{line.rate:.2f}" if line.priced else "",
+            f"{line.total:.2f}", "; ".join(line.panels),
+        ])
+    rows.append([])
+    rows.append(["", "", "", "", "Subtotal", f"{bom.subtotal:.2f}"])
+    rows.append(["", "", "", "", f"{bom.tax_label} @ {bom.tax_rate:g}%", f"{bom.tax:.2f}"])
+    rows.append(["", "", "", "", f"Total ({bom.currency})", f"{bom.total:.2f}"])
+    return _csv_bytes(rows)
+
+
+def bom_xlsx(bom: "Bom") -> bytes:
+    try:
+        from openpyxl import Workbook  # noqa: PLC0415
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("openpyxl is required for Excel export") from exc
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Bill of materials"
+    bold = Font(bold=True)
+
+    headings = ["Part code", "Description", "Qty", "Unit", "Rate", "Amount", "Panels"]
+    sheet.append(headings)
+    fill = PatternFill("solid", fgColor="FFEFD9BE")
+    for column in range(1, len(headings) + 1):
+        cell = sheet.cell(row=1, column=column)
+        cell.font = bold
+        cell.fill = fill
+        cell.alignment = Alignment(vertical="center")
+
+    for line in bom.lines:
+        sheet.append([line.part_code, line.description, line.quantity, line.unit,
+                      line.rate if line.priced else None, line.total,
+                      "; ".join(line.panels)])
+
+    sheet.append([])
+    for label, value in (("Subtotal", bom.subtotal),
+                         (f"{bom.tax_label} @ {bom.tax_rate:g}%", bom.tax),
+                         (f"Total ({bom.currency})", bom.total)):
+        sheet.append(["", "", "", "", label, value])
+        sheet.cell(row=sheet.max_row, column=5).font = bold
+        sheet.cell(row=sheet.max_row, column=6).font = bold
+
+    for index, width in enumerate([16, 52, 8, 7, 12, 13, 30], start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    for row in range(2, sheet.max_row + 1):
+        for column in (5, 6):
+            sheet.cell(row=row, column=column).number_format = "#,##0.00"
+    sheet.freeze_panes = "A2"
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()

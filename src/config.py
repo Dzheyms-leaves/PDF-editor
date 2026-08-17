@@ -71,6 +71,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # Used to work out which party on a purchase order is *us*, so the other
     # one gets reported as the counterparty.
     "my_company_names": ["Automated Electrical Solutions", "AES"],
+    # --- Quoting ---
+    # Part code -> rate. Panels with no entry are carried at zero and flagged
+    # on the quote rather than being silently priced as free.
+    "price_book": {},
+    "quote_currency": "AUD",
+    "quote_tax_rate": 10.0,
+    "quote_tax_label": "GST",
+    "quote_terms": "",
+    # --- Engraving ---
+    # Saved label sets, reapplied to panels of the same room type.
+    "engraving_templates": [],
     # --- Viewer ---
     "preview_dpi": 110,
     "max_upload_mb": 300,

@@ -16,8 +16,10 @@ window.ModeDesigner = (() => {
   let backlit = false;
   let zoom = 4.4;                       // screen pixels per millimetre
   let checkTimer = null;
+  let templates = [];                   // saved engraving label sets
 
-  const job = { name: 'antumbra-job', project: '', client: '' };
+  const rates = {};                     // part code -> rate, for this job
+  const job = { name: 'antumbra-job', project: '', client: '', reference: '' };
   const view = { layout: null, code: '', product: '', slots: 0, warnings: [] };
 
   // ------------------------------------------------------------ state
@@ -338,6 +340,174 @@ window.ModeDesigner = (() => {
     return `#${parts.join('')}`;
   }
 
+  // ---------------------------------------------------------- templates
+
+  async function loadTemplates() {
+    try { templates = await API.get('/api/designer/templates'); }
+    catch (_) { templates = []; }
+  }
+
+  /** Save the current panel's labels so a repeat room type is one click. */
+  async function saveTemplate() {
+    const design = current();
+    if (!design || !view.slots) return;
+    const used = design.engraving.filter(
+      (e) => (e.lines || []).some((l) => l.trim()) || e.icon);
+    if (!used.length) { UI.err('Engrave a button before saving a template'); return; }
+
+    const name = el('input', { type: 'text', value: design.name || 'Template' });
+    UI.modal({
+      title: 'Save engraving template',
+      body: el('div', {}, [
+        field('Name', name, 'Saved on this machine and offered on every job.'),
+        el('p', { class: 'hint',
+          text: `${used.length} engraved position(s) from “${design.name}”.` }),
+      ]),
+      actions: [
+        { label: 'Cancel' },
+        {
+          label: 'Save', kind: 'primary',
+          onClick: async (close) => {
+            try {
+              templates = await API.post('/api/designer/templates', {
+                name: name.value.trim() || 'Template',
+                slots: view.slots,
+                engraving: JSON.parse(JSON.stringify(used)),
+              });
+              UI.ok('Template saved');
+              close();
+              App.refreshSide();
+            } catch (error) { UI.err(error.message); }
+          },
+        },
+      ],
+    });
+  }
+
+  function applyTemplate(template) {
+    const design = current();
+    if (!design) return;
+    design.engraving = JSON.parse(JSON.stringify(template.engraving))
+      .filter((e) => e.index < view.slots);
+    selected = 0;
+    renderPreview();
+    scheduleCheck();
+    App.refreshSide();
+    const dropped = template.engraving.length - design.engraving.length;
+    if (dropped > 0) {
+      UI.toast(`${dropped} label(s) dropped — this panel has ${view.slots} buttons`);
+    } else {
+      UI.ok(`Applied “${template.name}”`);
+    }
+  }
+
+  // --------------------------------------------------------- job costing
+
+  async function costJob() {
+    if (!designs.length) { UI.err('Add a panel first'); return; }
+    let bom;
+    try {
+      bom = await API.post('/api/designer/bom', { designs, rates, job_name: job.name });
+    } catch (error) { UI.err(error.message); return; }
+
+    const money = (value) => `${bom.currency} ${value.toFixed(2)}`;
+    const table = el('div', { class: 'bom-table' });
+    table.appendChild(el('div', { class: 'bom-head' }, [
+      el('span', { text: 'Part code' }), el('span', { text: 'Description' }),
+      el('span', { text: 'Qty' }), el('span', { text: 'Rate' }),
+      el('span', { text: 'Amount' }),
+    ]));
+
+    const totalsRow = el('div', { class: 'bom-totals' });
+    function paintTotals(fresh) {
+      totalsRow.innerHTML = '';
+      [['Subtotal', fresh.subtotal], [`${fresh.tax_label} @ ${fresh.tax_rate}%`, fresh.tax],
+        ['Total', fresh.total]].forEach(([label, value], index) => {
+        totalsRow.appendChild(el('div', { class: index === 2 ? 'bom-total grand' : 'bom-total' }, [
+          el('span', { text: label }),
+          el('span', { text: `${fresh.currency} ${value.toFixed(2)}` }),
+        ]));
+      });
+    }
+
+    const notice = el('p', { class: 'hint' });
+    function paintNotice(fresh) {
+      notice.className = fresh.unpriced.length ? 'hint warn' : 'hint';
+      notice.textContent = fresh.unpriced.length
+        ? `No rate for ${fresh.unpriced.join(', ')} — these carry at zero until you set one.`
+        : 'Rates typed here apply to this job. Save them to reuse on the next one.';
+    }
+
+    async function reprice() {
+      try {
+        const fresh = await API.post('/api/designer/bom',
+          { designs, rates, job_name: job.name });
+        table.querySelectorAll('.bom-amount').forEach((node, index) => {
+          node.textContent = money(fresh.lines[index].total);
+        });
+        table.querySelectorAll('.bom-row').forEach((node, index) => {
+          node.classList.toggle('unpriced', !fresh.lines[index].priced);
+        });
+        paintTotals(fresh);
+        paintNotice(fresh);
+      } catch (error) { UI.err(error.message); }
+    }
+
+    bom.lines.forEach((line) => {
+      const rate = el('input', {
+        type: 'number', step: '0.01', min: '0', class: 'bom-rate',
+        value: line.priced ? line.rate.toFixed(2) : '',
+        placeholder: 'no rate',
+      });
+      rate.addEventListener('change', () => {
+        const value = parseFloat(rate.value);
+        if (Number.isFinite(value)) rates[line.part_code] = value;
+        else delete rates[line.part_code];
+        reprice();
+      });
+      table.appendChild(el('div', {
+        class: `bom-row${line.priced ? '' : ' unpriced'}`,
+      }, [
+        el('span', { class: 'bom-code', text: line.part_code || '—' }),
+        el('span', { class: 'bom-desc', text: line.description,
+          title: line.panels.join(', ') }),
+        el('span', { text: `${line.quantity} ${line.unit}` }),
+        el('span', {}, [rate]),
+        el('span', { class: 'bom-amount', text: money(line.total) }),
+      ]));
+    });
+    paintTotals(bom);
+    paintNotice(bom);
+
+    const exportQuote = (fmt) => API.download('/api/designer/quote', {
+      designs, rates, job_name: job.name, project: job.project, client: job.client,
+      reference: job.reference, fmt,
+    }, `${job.name}.${fmt}`).catch((error) => UI.err(error.message));
+
+    UI.modal({
+      title: 'Job costing',
+      wide: true,
+      body: el('div', {}, [table, totalsRow, notice]),
+      actions: [
+        {
+          label: 'Save rates to price book',
+          onClick: async () => {
+            try {
+              const settings = await API.get('/api/settings');
+              await API.post('/api/settings', {
+                price_book: { ...(settings.price_book || {}), ...rates },
+              });
+              UI.ok('Price book updated');
+            } catch (error) { UI.err(error.message); }
+          },
+        },
+        { label: 'CSV', onClick: () => exportQuote('csv') },
+        { label: 'Excel', onClick: () => exportQuote('xlsx') },
+        { label: 'Quote PDF', kind: 'primary', onClick: () => exportQuote('pdf') },
+      ],
+    });
+  }
+
   // ------------------------------------------------------- icon picker
 
   function pickIcon(onPick) {
@@ -635,6 +805,39 @@ window.ModeDesigner = (() => {
           renderPreview(); App.refreshSide(); scheduleCheck();
         } }),
     ]));
+
+    // -- reusable label sets ---------------------------------------------
+    host.appendChild(el('h2', { class: 'section', text: 'Label templates' }));
+    if (templates.length) {
+      templates.forEach((template) => {
+        host.appendChild(el('div', { class: 'tpl-row' }, [
+          el('button', {
+            class: 'btn sm', text: `${template.name} (${template.engraving.length})`,
+            title: `Apply “${template.name}” to this panel`,
+            onClick: () => applyTemplate(template),
+          }),
+          el('button', {
+            class: 'btn sm danger', text: '✕', title: 'Delete this template',
+            onClick: async () => {
+              if (!await UI.confirm(`Delete the “${template.name}” template?`,
+                { danger: true })) return;
+              try {
+                templates = await API.del(
+                  `/api/designer/templates/${template.template_id}`);
+                App.refreshSide();
+              } catch (error) { UI.err(error.message); }
+            },
+          }),
+        ]));
+      });
+    } else {
+      host.appendChild(el('p', { class: 'hint',
+        text: 'No templates yet. Save a panel you will repeat — a hotel suite, a corridor — and apply it to the next one.' }));
+    }
+    host.appendChild(el('button', {
+      class: 'btn sm', style: 'width:100%; margin-top:4px',
+      text: 'Save this panel as a template', onClick: saveTemplate,
+    }));
   }
 
   function buildJobBlock(host) {
@@ -651,6 +854,15 @@ window.ModeDesigner = (() => {
       type: 'text', value: job.client,
       onInput: (e) => { job.client = e.target.value; },
     })));
+    host.appendChild(field('Quote reference', el('input', {
+      type: 'text', value: job.reference, placeholder: 'Q-2481',
+      onInput: (e) => { job.reference = e.target.value; },
+    })));
+
+    host.appendChild(el('button', {
+      class: 'btn', style: 'width:100%; margin-bottom:10px',
+      text: 'Price this job', disabled: !designs.length, onClick: costJob,
+    }));
 
     const download = (fmt) => API.download('/api/designer/export', {
       designs, job_name: job.name, project: job.project, client: job.client, fmt,
@@ -753,6 +965,7 @@ window.ModeDesigner = (() => {
           return;
         }
       }
+      await loadTemplates();
       if (!designs.length) {
         const design = blankDesign(null);
         designs.push(design);

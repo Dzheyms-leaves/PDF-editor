@@ -655,6 +655,41 @@ class DesignToPanelsRequest(BaseModel):
     designs: List[PanelDesign]
 
 
+class QuoteLine(BaseModel):
+    """An extra order line the designer cannot work out for itself."""
+
+    part_code: str = ""
+    description: str = ""
+    quantity: float = 1
+    unit: str = "ea"
+    rate: float = 0.0
+
+
+class QuoteRequest(BaseModel):
+    designs: List[PanelDesign] = []
+    extras: List[QuoteLine] = []
+    job_name: str = ""
+    project: str = ""
+    client: str = ""
+    reference: str = ""
+    terms: str = ""
+    include_engraving: bool = True
+    rates: Dict[str, float] = {}          # overrides the stored price book
+    currency: Optional[str] = None
+    tax_rate: Optional[float] = None
+    tax_label: Optional[str] = None
+    fmt: Literal["pdf", "csv", "xlsx"] = "pdf"
+
+
+class EngravingTemplate(BaseModel):
+    """A reusable set of button labels, for repeat room types."""
+
+    template_id: str = ""
+    name: str = "Template"
+    slots: int = 6
+    engraving: List[ButtonEngraving] = []
+
+
 # --------------------------------------------------------------------------
 # Job packs and batch operations
 # --------------------------------------------------------------------------

@@ -76,7 +76,7 @@ window.UI = (() => {
     return true;
   }
 
-  function modal({ title, body, actions = [], onClose }) {
+  function modal({ title, body, actions = [], onClose, wide = false }) {
     const root = document.getElementById('modal-root');
     const close = () => { root.innerHTML = ''; if (onClose) onClose(); };
     const foot = el('div', { class: 'modal-foot' },
@@ -86,7 +86,7 @@ window.UI = (() => {
         onClick: () => action.onClick ? action.onClick(close) : close(),
       })));
     const backdrop = el('div', { class: 'modal-backdrop' }, [
-      el('div', { class: 'modal' }, [
+      el('div', { class: `modal${wide ? ' wide' : ''}` }, [
         el('div', { class: 'modal-head' }, [
           el('h3', { text: title }),
           el('button', { class: 'btn icon ghost', text: '✕', onClick: close }),

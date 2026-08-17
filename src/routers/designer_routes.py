@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import io
 import json
+import uuid
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 
-from .. import exporters
-from ..designer import catalogue, icons as icon_lib, jobs, render
+from .. import config, exporters
+from ..designer import bom, catalogue, icons as icon_lib, jobs, render
 from ..models import (
     DesignCheckResult,
+    EngravingTemplate,
     DesignExportRequest,
     DesignToPanelsRequest,
     PanelDesign,
     PanelEntry,
+    QuoteRequest,
 )
 
 router = APIRouter(prefix="/api/designer", tags=["designer"])
@@ -106,6 +109,105 @@ def export(req: DesignExportRequest) -> Response:
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# -------------------------------------------------------- bill of materials
+
+def _quote_settings(req: QuoteRequest) -> Dict[str, Any]:
+    """Merge the stored commercial defaults with anything sent per request."""
+    stored = config.load_settings()
+    return {
+        "price_book": stored.get("price_book") or {},
+        "currency": req.currency or stored.get("quote_currency") or "AUD",
+        "tax_rate": (req.tax_rate if req.tax_rate is not None
+                     else stored.get("quote_tax_rate", 10.0)),
+        "tax_label": req.tax_label or stored.get("quote_tax_label") or "GST",
+        "terms": req.terms or stored.get("quote_terms") or "",
+        "company": (stored.get("my_company_names") or [""])[0],
+    }
+
+
+def _build_bom(req: QuoteRequest):
+    settings = _quote_settings(req)
+    try:
+        result = bom.build(
+            req.designs,
+            price_book=settings["price_book"],
+            overrides=req.rates,
+            extras=req.extras,
+            include_engraving=req.include_engraving,
+            currency=settings["currency"],
+            tax_rate=float(settings["tax_rate"]),
+            tax_label=settings["tax_label"],
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result, settings
+
+
+@router.post("/bom")
+def bill_of_materials(req: QuoteRequest) -> Dict[str, Any]:
+    """Price the job on screen, grouping identical configurations."""
+    result, _settings = _build_bom(req)
+    return result.as_dict()
+
+
+@router.post("/quote")
+def quote(req: QuoteRequest) -> Response:
+    """Download the job as a quotation or a bill of materials."""
+    result, settings = _build_bom(req)
+    stem = (req.job_name or "quote").replace("/", "-").strip() or "quote"
+
+    if req.fmt == "pdf":
+        payload = bom.quote_pdf(
+            result, job_name=req.job_name, project=req.project, client=req.client,
+            reference=req.reference, company=settings["company"],
+            terms=settings["terms"])
+        media, name = "application/pdf", f"{stem}.pdf"
+    elif req.fmt == "csv":
+        payload = exporters.bom_csv(result)
+        media, name = "text/csv; charset=utf-8", f"{stem}.csv"
+    else:
+        payload = exporters.bom_xlsx(result)
+        media = ("application/vnd.openxmlformats-officedocument"
+                 ".spreadsheetml.sheet")
+        name = f"{stem}.xlsx"
+
+    return StreamingResponse(
+        io.BytesIO(payload), media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ---------------------------------------------------------------- templates
+
+@router.get("/templates", response_model=List[EngravingTemplate])
+def list_templates() -> List[EngravingTemplate]:
+    stored = config.get_setting("engraving_templates", []) or []
+    return [EngravingTemplate(**item) for item in stored]
+
+
+@router.post("/templates", response_model=List[EngravingTemplate])
+def save_template(template: EngravingTemplate) -> List[EngravingTemplate]:
+    """Save a label set, replacing any template of the same id."""
+    if not template.name.strip():
+        raise HTTPException(status_code=400, detail="Give the template a name")
+
+    stored = list(config.get_setting("engraving_templates", []) or [])
+    template.template_id = template.template_id or uuid.uuid4().hex[:10]
+    kept = [item for item in stored if item.get("template_id") != template.template_id]
+    kept.append(template.model_dump())
+    config.save_settings({"engraving_templates": kept})
+    return [EngravingTemplate(**item) for item in kept]
+
+
+@router.delete("/templates/{template_id}", response_model=List[EngravingTemplate])
+def delete_template(template_id: str) -> List[EngravingTemplate]:
+    stored = list(config.get_setting("engraving_templates", []) or [])
+    kept = [item for item in stored if item.get("template_id") != template_id]
+    if len(kept) == len(stored):
+        raise HTTPException(status_code=404, detail="No such template")
+    config.save_settings({"engraving_templates": kept})
+    return [EngravingTemplate(**item) for item in kept]
 
 
 @router.post("/panels", response_model=List[PanelEntry])

@@ -268,3 +268,134 @@ def test_panels_endpoint_feeds_the_engraving_queue(client):
     empty = client.post("/api/designer/panels",
                         json={"designs": [design(engraving=[])]})
     assert empty.status_code == 400
+
+
+# ------------------------------------------------------ bill of materials
+
+def test_bom_groups_identical_configurations():
+    from src.designer import bom
+    from src.models import PanelDesign
+
+    designs = [
+        PanelDesign(**design(design_id="a", name="Suite A", buttons=4, region="E",
+                             button_finish="N", rim_finish="C", quantity=12)),
+        PanelDesign(**design(design_id="b", name="Suite B", buttons=4, region="E",
+                             button_finish="N", rim_finish="C", quantity=8)),
+        PanelDesign(**design(design_id="c", name="Lobby", quantity=4)),
+    ]
+    result = bom.build(designs, price_book={"PA4BPE-NC": 498.0, "PA6BPA-WA": 412.5,
+                                            "ENGRAVING": 18.0})
+
+    by_code = {line.part_code: line for line in result.lines}
+    assert by_code["PA4BPE-NC"].quantity == 20          # the two suites merge
+    assert by_code["PA4BPE-NC"].panels == ["Suite A", "Suite B"]
+    assert by_code["PA6BPA-WA"].quantity == 4
+    # Every panel here carries engraving, so the labour line counts all of them.
+    assert by_code["ENGRAVING"].quantity == 24
+
+    assert result.subtotal == round(20 * 498.0 + 4 * 412.5 + 24 * 18.0, 2)
+    assert result.tax == round(result.subtotal * 0.10, 2)
+    assert result.total == round(result.subtotal + result.tax, 2)
+
+
+def test_bom_flags_a_part_with_no_rate_instead_of_pricing_it_free():
+    from src.designer import bom
+    from src.models import PanelDesign
+
+    result = bom.build([PanelDesign(**design(quantity=3))], price_book={})
+    line = result.lines[0]
+    assert line.priced is False
+    assert line.rate == 0.0
+    assert result.unpriced == [line.part_code, "ENGRAVING"]
+
+
+def test_bom_request_rates_beat_the_price_book():
+    from src.designer import bom
+    from src.models import PanelDesign
+
+    result = bom.build([PanelDesign(**design())],
+                       price_book={"PA6BPA-WA": 400.0},
+                       overrides={"PA6BPA-WA": 350.0})
+    assert result.lines[0].rate == 350.0
+
+
+def test_bom_skips_the_engraving_line_for_a_blank_panel():
+    from src.designer import bom
+    from src.models import PanelDesign
+
+    result = bom.build([PanelDesign(**design(engraving=[]))])
+    assert [line.part_code for line in result.lines] == ["PA6BPA-WA"]
+
+
+def test_bom_extras_join_the_order():
+    from src.designer import bom
+    from src.models import PanelDesign, QuoteLine
+
+    result = bom.build([PanelDesign(**design())],
+                       extras=[QuoteLine(description="Freight", quantity=1, rate=95),
+                               QuoteLine(description="Ignored", quantity=0, rate=50)])
+    assert [line.description for line in result.lines][-1] == "Freight"
+    assert len(result.lines) == 3          # panel, engraving, freight
+
+
+def test_quote_pdf_states_its_numbers(client):
+    from src.pdfcompat import pymupdf
+
+    response = client.post("/api/designer/quote", json={
+        "designs": [design(quantity=2)], "job_name": "riverside",
+        "client": "Acme Electrical", "reference": "Q-2481",
+        "rates": {"PA6BPA-WA": 400.0, "ENGRAVING": 20.0}, "fmt": "pdf"})
+    assert response.status_code == 200
+
+    doc = pymupdf.open(stream=response.content)
+    try:
+        text = doc[0].get_text()
+    finally:
+        doc.close()
+    for expected in ("QUOTATION", "PA6BPA-WA", "Acme Electrical", "Q-2481",
+                     "840.00", "GST", "924.00"):
+        assert expected in text, f"{expected!r} missing from the quote"
+
+
+def test_quote_formats(client):
+    for fmt, head in (("csv", b"\xef\xbb\xbfPart code,"), ("xlsx", b"PK")):
+        response = client.post("/api/designer/quote", json={
+            "designs": [design()], "job_name": "riverside", "fmt": fmt})
+        assert response.status_code == 200
+        assert response.content.startswith(head)
+
+
+def test_bom_rejects_an_impossible_panel(client):
+    response = client.post("/api/designer/bom",
+                           json={"designs": [design(family="D", series="L")]})
+    assert response.status_code == 400
+
+
+# ------------------------------------------------------------- templates
+
+def test_engraving_templates_round_trip(client):
+    body = {"name": "Hotel suite", "slots": 4, "engraving": [
+        {"index": 0, "lines": ["MASTER"], "icon": "bulb", "icon_side": "left"},
+        {"index": 1, "lines": ["DO NOT", "DISTURB"], "icon": "dnd", "icon_side": "left"},
+    ]}
+    saved = client.post("/api/designer/templates", json=body).json()
+    assert len(saved) == 1
+    template_id = saved[0]["template_id"]
+    assert template_id
+    assert saved[0]["engraving"][1]["lines"] == ["DO NOT", "DISTURB"]
+
+    assert client.get("/api/designer/templates").json()[0]["template_id"] == template_id
+
+    # Saving with the same id replaces rather than duplicates.
+    again = client.post("/api/designer/templates",
+                        json={**body, "template_id": template_id, "name": "Suite v2"}).json()
+    assert len(again) == 1
+    assert again[0]["name"] == "Suite v2"
+
+    assert client.delete(f"/api/designer/templates/{template_id}").json() == []
+    assert client.delete(f"/api/designer/templates/{template_id}").status_code == 404
+
+
+def test_template_needs_a_name(client):
+    assert client.post("/api/designer/templates",
+                       json={"name": "  ", "slots": 6}).status_code == 400

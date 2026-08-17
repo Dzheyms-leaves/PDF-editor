@@ -75,11 +75,13 @@ class Region:
     width_mm: float
     height_mm: float
     mounting: str
+    short: str = ""    # compact form, for order lines
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "code": self.code, "name": self.name, "width_mm": self.width_mm,
             "height_mm": self.height_mm, "mounting": self.mounting,
+            "short": self.short,
         }
 
 
@@ -126,8 +128,8 @@ FAMILIES: Tuple[Family, ...] = (
 
 REGIONS: Tuple[Region, ...] = (
     Region("A", "Australian / American", 75.0, 116.0,
-           "US 1-gang / AU vertical wall box"),
-    Region("E", "European", 86.0, 86.0, "EU 60 mm flush box"),
+           "US 1-gang / AU vertical wall box", "AU/US"),
+    Region("E", "European", 86.0, 86.0, "EU 60 mm flush box", "EU"),
 )
 
 SERIES: Tuple[Series, ...] = (

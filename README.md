@@ -1,7 +1,7 @@
 # PDF Workbench
 
 A local-first PDF editor, batch logo stamper, control-panel label extractor,
-Antumbra panel designer and OCR bench in one application. Everything runs on your machine — no PDF is ever
+Antumbra panel designer, job-pack assembler and OCR bench in one application. Everything runs on your machine — no PDF is ever
 uploaded anywhere unless you explicitly configure a remote OCR endpoint.
 
 It merges and extends two earlier tools:
@@ -12,7 +12,8 @@ It merges and extends two earlier tools:
 | `antumbrapdfextractor.html` (browser, pdf.js) | **Panels** mode, both layout parsers ported, plus OCR for scanned sheets |
 | — | **Edit** mode: a full PDF editor |
 | — | **Purchase orders** mode: structured extraction with click-to-copy |
-| — | **Designer** mode: configure Antumbra panels and produce the engraving spec |
+| — | **Designer** mode: configure Antumbra panels, engraving spec, BOM and quote |
+| — | **Batch** mode: job packs and tools that run across every open document |
 
 ---
 
@@ -28,7 +29,7 @@ The server starts and your browser opens at `http://127.0.0.1:8000`.
 
 ---
 
-## The five modes
+## The six modes
 
 ### Edit
 A genuine PDF editor, not a viewer with annotations bolted on.
@@ -125,6 +126,18 @@ Three outputs:
   entry per physical panel, where it picks up the copy chips, the
   identical-configuration grouping and the EZcad2 export.
 
+**Label templates.** Save a panel's labels once and apply them to the next
+panel of the same room type. Templates are kept on this machine and offered on
+every job; a template with more labels than the target panel has buttons drops
+the surplus and says so.
+
+**Job costing.** *Price this job* groups identical configurations into order
+lines — two suites of the same panel become one line of 20 — adds an engraving
+line covering every engraved panel, and totals with tax. Rates come from a
+local price book you can add to as you go; anything with no rate is carried at
+zero and flagged both on screen and on the quote, so an unpriced part is
+visible rather than silently free. Exports as a quotation PDF, CSV or Excel.
+
 Jobs save and reopen as JSON, so a design can be revisited when the client
 changes a label.
 
@@ -132,6 +145,25 @@ The Signify **12NC** ordering number is deliberately *not* generated. It is
 allocated by Signify rather than derived from the configuration, so the designer
 carries it as a field you fill in from your quote — inventing one would put a
 wrong number on a purchase order.
+
+### Batch
+Everything else in the workbench works on one document; this tab works on all
+of them.
+
+**Job pack** assembles the selected PDFs into one issued deliverable: a cover
+sheet carrying project, client, reference and revision, a contents page whose
+rows are real links, PDF bookmarks matching it, continuous page numbering and a
+title-block footer. Each source keeps its own outline, rebased onto the pack.
+The running order is shown live — which documents are in, their title in the
+contents, and the page each starts on once the front matter is counted — so the
+preview and the built pack agree before anything is generated.
+
+**Bulk tools** run over every selected document: page numbers and footer,
+watermark, rotate, optimise, flatten annotations, strip metadata, split by page
+count or ranges, and rename by pattern (`{name} {n} {nn} {pages} {date}
+{project} {rev}`). Each either downloads as a ZIP, leaving the originals alone,
+or applies in place — where every document keeps its own undo, so an eight-file
+batch is eight separate undos, not one.
 
 ### Logo stamp
 Batch-stamps a logo into genuine whitespace across many PDFs, evaluating
@@ -216,12 +248,14 @@ src/
   ocr/                      base · registry · deepseek · remote · fallback
                             native · service   (engine abstraction)
   extract/                  textgrid · purchase_order · panels · templates
-  designer/                 catalogue · icons · render · jobs
-                            (Antumbra products, geometry and spec sheets)
+  designer/                 catalogue · icons · render · jobs · bom
+                            (Antumbra products, geometry, spec sheets, quoting)
+  assemble/                 pack · batch
+                            (job packs and cross-document operations)
   routers/                  documents · edit · ocr_routes · extract_routes
-                            stamp · designer_routes
+                            stamp · designer_routes · batch_routes
 static/                     Vanilla JS front end, no CDN, fully offline
-tests/                      114 tests
+tests/                      149 tests
 ```
 
 ## Tests
@@ -238,6 +272,13 @@ The designer tests assert the part codes against real published examples, check
 that no button escapes its plate, and render every family/series/region
 combination in the catalogue — a finish that cannot be drawn would otherwise
 become a broken order.
+
+The assembly tests pin the page-offset arithmetic: that a contents row links to
+the page it names, that each source's own bookmarks land rebased, and that a
+batch applied in place stays undoable per document.
+
+Tests never touch the real settings file — an autouse fixture points it at a
+temporary path, so the price book and saved templates are safe to run against.
 
 ## Notes and limits
 
