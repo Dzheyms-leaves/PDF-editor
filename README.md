@@ -44,6 +44,59 @@ The server starts and your browser opens at `http://127.0.0.1:8000`.
 
 ---
 
+## Updating your copy
+
+The app is a git checkout, so updating is a pull and a dependency check.
+
+```bash
+cd path/to/PDF-editor
+git pull origin main
+pip install -r requirements.txt      # only if requirements changed
+```
+
+Then restart `python run_app.py`. The browser tab caches the front end, so
+hard-refresh it (**Ctrl+F5**, or **Cmd+Shift+R** on a Mac) after an update or
+you can end up running new Python against old JavaScript — which usually shows
+up as a button that 404s.
+
+**Close the old instance first.** The launcher takes the first free port from
+8000, so leaving one running means the new copy quietly starts on 8001 while
+your open tab still points at the old one — and the update looks like it did
+nothing. Check the port in the terminal if anything seems stale.
+
+If you are running a packaged `.exe`, rebuild it after pulling:
+
+```bash
+python build_exe.py
+```
+
+**Your data is not in the repo.** Open documents, uploaded logos, the price
+book and saved engraving templates all live in the `workspace/` folder, which
+is git-ignored. A pull never touches them. Worth copying `workspace/settings.json`
+somewhere safe once you have built up a price book.
+
+**If a pull conflicts** because you edited something locally, the quickest
+clean route is to stash, pull, then reapply:
+
+```bash
+git stash
+git pull origin main
+git stash pop
+```
+
+### Taking a change that is still in a pull request
+
+To try a branch before it is merged:
+
+```bash
+git fetch origin
+git checkout claude/some-branch-name
+python -m pytest tests/ -q      # confirm it is healthy on your machine
+```
+
+`git checkout main` puts you back. Merging the pull request on GitHub is what
+makes a change permanent; pulling a branch is just a look.
+
 ## The six modes
 
 ### Edit
@@ -279,6 +332,49 @@ src/
 static/                     Vanilla JS front end, no CDN, fully offline
 tests/                      152 tests
 ```
+
+## Extending the workbench
+
+The parts most likely to need changing, and where they live.
+
+| To change | Edit |
+|---|---|
+| An Antumbra finish, family, region or dimension | the tables in `src/designer/catalogue.py` |
+| An engraving icon | `src/designer/icons.py` |
+| Prices, tax rate, currency, quote terms | Settings in the app, or `workspace/settings.json` |
+| Colours, spacing, the whole look | the token block at the top of `static/css/app.css` |
+| What a spec sheet, pack or quote looks like | `designer/render.py`, `assemble/pack.py`, `designer/bom.py` |
+| A new export format | a function in `src/exporters.py`, then the route |
+
+Two rules keep the tool honest, and are worth preserving:
+
+**Panel geometry lives in one place.** `catalogue.py` owns the millimetres, and
+both the on-screen preview and the printed drawing read from it. That is why
+the panel on screen and the 1:1 elevation in the PDF cannot drift apart. Adding
+a finish or correcting a dimension is a one-line change that lands everywhere —
+so never hardcode a millimetre anywhere else.
+
+**Nothing is invented.** The 12NC is not generated, and an unpriced part is
+flagged rather than costed at zero. Both exist so a wrong number cannot reach a
+purchase order.
+
+### Adding a tab
+
+1. `static/js/mode-yours.js` — an IIFE on `window` returning
+   `{ id, activate(host), deactivate(), refresh(host) }`.
+2. `static/index.html` — a `<button class="mode-btn" data-mode="yours">` and a
+   `<script>` tag.
+3. `static/js/app.js` — an entry in the `MODES` map.
+4. If it takes over the stage, add a `body[data-mode=yours]` CSS block hiding
+   the PDF furniture, and a stage element with a matching
+   `[hidden] { display: none; }` rule.
+
+Back-end work is a module in `src/routers/`, schemas in `src/models.py`, and a
+line in `src/server.py` to register the router.
+
+There is a `CLAUDE.md` at the repo root with the same map plus the traps worth
+knowing about — read it before a first change, whether you are an AI agent or a
+person.
 
 ## Tests
 
