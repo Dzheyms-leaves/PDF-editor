@@ -46,7 +46,6 @@ A genuine PDF editor, not a viewer with annotations bolted on.
   with a black box.
 - **Watermarks and Bates numbering**, and **Make searchable** to add an invisible
   OCR text layer to a scan.
-
 - **Markup manager** — everything already on the current page is listed, so you
   can locate or delete an individual annotation without reaching for undo.
 
