@@ -1,0 +1,16 @@
+# --- Core (required) -------------------------------------------------------
+pymupdf>=1.24
+pillow>=10.0
+numpy>=1.24
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+openpyxl>=3.1
+
+# --- OCR: lightweight CPU fallback (recommended for every machine) ---------
+# Works with no GPU and no system packages. Install with:
+#     pip install -r requirements-ocr-cpu.txt
+
+# --- OCR: DeepSeek-OCR (needs an NVIDIA GPU, ~8 GB VRAM) -------------------
+# See requirements-ocr-gpu.txt and the README.

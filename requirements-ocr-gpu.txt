@@ -1,0 +1,20 @@
+# DeepSeek-OCR on an NVIDIA GPU (~8 GB VRAM or more).
+#
+# Install PyTorch FIRST, matched to your CUDA version, e.g. for CUDA 12.1:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# then:
+#   pip install -r requirements-ocr-gpu.txt
+#
+# The model (~6.7 GB) downloads on first use into the app workspace.
+
+transformers>=4.46
+tokenizers>=0.20
+einops
+addict
+easydict
+safetensors
+accelerate
+
+# Optional: a large speedup, but needs a matching CUDA toolchain to build.
+# The app falls back to eager attention automatically when this is absent.
+# flash-attn>=2.7.3 --no-build-isolation
