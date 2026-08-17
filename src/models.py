@@ -602,6 +602,184 @@ class PanelExportRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Antumbra panel designer
+# --------------------------------------------------------------------------
+
+class ButtonEngraving(BaseModel):
+    """What is lasered onto one button position."""
+
+    index: int = 0
+    lines: List[str] = []                       # one or two rows of text
+    icon: Optional[str] = None                  # key into the icon library
+    icon_side: Literal["left", "top"] = "left"
+
+
+class PanelDesign(BaseModel):
+    design_id: str
+    name: str = "Panel 1"
+    family: str = "B"                           # B | T | D
+    series: str = "P"                           # P | L
+    region: str = "A"                           # A | E
+    buttons: int = 6
+    button_finish: str = "W"
+    rim_finish: str = "A"
+    backlight: str = "white"
+    engraving: List[ButtonEngraving] = []
+    location: str = ""                          # where it goes on site
+    reference: str = ""                         # the customer's own reference
+    order_12nc: str = ""                        # Signify code, entered by hand
+    quantity: int = 1
+    notes: str = ""
+
+
+class DesignCheckResult(BaseModel):
+    ok: bool = True
+    part_code: str = ""
+    product: str = ""
+    slots: int = 0
+    errors: List[str] = []
+    warnings: List[str] = []
+    summary: List[List[str]] = []
+    layout: Dict[str, Any] = {}
+
+
+class DesignExportRequest(BaseModel):
+    designs: List[PanelDesign]
+    job_name: str = "antumbra-job"
+    project: str = ""
+    client: str = ""
+    fmt: Literal["pdf", "csv", "xlsx", "json"] = "pdf"
+
+
+class DesignToPanelsRequest(BaseModel):
+    designs: List[PanelDesign]
+
+
+class QuoteLine(BaseModel):
+    """An extra order line the designer cannot work out for itself."""
+
+    part_code: str = ""
+    description: str = ""
+    quantity: float = 1
+    unit: str = "ea"
+    rate: float = 0.0
+
+
+class QuoteRequest(BaseModel):
+    designs: List[PanelDesign] = []
+    extras: List[QuoteLine] = []
+    job_name: str = ""
+    project: str = ""
+    client: str = ""
+    reference: str = ""
+    terms: str = ""
+    include_engraving: bool = True
+    rates: Dict[str, float] = {}          # overrides the stored price book
+    currency: Optional[str] = None
+    tax_rate: Optional[float] = None
+    tax_label: Optional[str] = None
+    fmt: Literal["pdf", "csv", "xlsx"] = "pdf"
+
+
+class EngravingTemplate(BaseModel):
+    """A reusable set of button labels, for repeat room types."""
+
+    template_id: str = ""
+    name: str = "Template"
+    slots: int = 6
+    engraving: List[ButtonEngraving] = []
+
+
+# --------------------------------------------------------------------------
+# Job packs and batch operations
+# --------------------------------------------------------------------------
+
+class PackSource(BaseModel):
+    doc_id: str
+    title: str = ""                              # blank falls back to filename
+
+
+class PackCover(BaseModel):
+    enabled: bool = True
+    title: str = ""
+    project: str = ""
+    client: str = ""
+    reference: str = ""
+    revision: str = ""
+    date: str = ""                               # blank means today
+    prepared_by: str = ""
+    notes: str = ""
+    logo_asset: Optional[str] = None
+
+
+class PackRequest(BaseModel):
+    sources: List[PackSource] = []
+    cover: PackCover = PackCover()
+    contents: bool = True
+    bookmarks: bool = True
+    page_numbers: bool = True
+    number_format: str = "Page {page} of {total}"
+    number_position: Literal[
+        "bottom-left", "bottom-centre", "bottom-right",
+        "top-left", "top-centre", "top-right",
+    ] = "bottom-right"
+    footer: str = ""
+    start_number: int = 1
+    filename: str = "job-pack.pdf"
+
+
+class BatchRequest(BaseModel):
+    doc_ids: List[str] = []
+    operation: Literal["stamp", "watermark", "rotate", "optimise", "flatten", "scrub"]
+    params: Dict[str, Any] = {}
+    in_place: bool = False                       # otherwise download a ZIP
+
+
+class BatchSplitRequest(BaseModel):
+    doc_ids: List[str] = []
+    every: int = 0
+    ranges: str = ""
+
+
+class BatchRenameRequest(BaseModel):
+    doc_ids: List[str] = []
+    pattern: str = "{name}"
+    project: str = ""
+    revision: str = ""
+
+
+class BatchManifestRequest(BaseModel):
+    """A document register for a pack, optionally with the rename plan."""
+
+    sources: List[PackSource] = []
+    cover: PackCover = PackCover()
+    contents: bool = True
+    pattern: str = ""
+    project: str = ""
+    revision: str = ""
+
+
+class BatchMergeRequest(BaseModel):
+    doc_ids: List[str] = []
+    filename: str = "merged.pdf"
+    bookmarks: bool = True
+
+
+class BatchOutcome(BaseModel):
+    doc_id: str
+    filename: str
+    pages: int = 0
+    ok: bool = True
+    detail: str = ""
+
+
+class BatchResult(BaseModel):
+    status: str = "success"
+    message: str = ""
+    outcomes: List[BatchOutcome] = []
+
+
+# --------------------------------------------------------------------------
 # Misc
 # --------------------------------------------------------------------------
 

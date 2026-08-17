@@ -15,6 +15,20 @@ def samples() -> Path:
     return SAMPLES
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    """Keep every test off the real settings file.
+
+    Settings hold the price book and saved engraving templates, so a test that
+    wrote to them would both clobber the user's data and pick up whatever was
+    already there. Each test gets its own empty file instead.
+    """
+    from src import config
+
+    monkeypatch.setattr(config, "SETTINGS_PATH", tmp_path / "settings.json")
+    return tmp_path
+
+
 @pytest.fixture()
 def client():
     from fastapi.testclient import TestClient

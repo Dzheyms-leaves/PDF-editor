@@ -12,6 +12,8 @@ window.App = (() => {
     edit: () => ModeEdit,
     po: () => ModePO,
     panels: () => ModePanels,
+    designer: () => ModeDesigner,
+    batch: () => ModeBatch,
     stamp: () => ModeStamp,
   };
 
@@ -94,6 +96,17 @@ window.App = (() => {
     } catch (error) { UI.err(error.message); }
   }
 
+  /** Re-read every document, after an edit that touched more than one. */
+  async function reloadAll() {
+    try {
+      state.docs = await API.get('/api/documents');
+      if (!currentDoc()) state.currentId = state.docs[0]?.doc_id || null;
+      const doc = currentDoc();
+      if (doc) Viewer.refresh(doc);
+      renderTabs();
+    } catch (error) { UI.err(error.message); }
+  }
+
   // --------------------------------------------------------------- modes
 
   function setMode(next) {
@@ -101,6 +114,9 @@ window.App = (() => {
     const previous = mode();
     if (previous?.deactivate) previous.deactivate();
     state.mode = next;
+    // Modes that take over the stage (the designer) hide the PDF furniture
+    // through this attribute rather than by poking at each control.
+    document.body.dataset.mode = next;
     document.querySelectorAll('.mode-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.mode === next);
     });
@@ -327,13 +343,13 @@ window.App = (() => {
       if (state.docs.length) select_(state.docs[0].doc_id);
     } catch (_) { /* fresh session */ }
     renderTabs();
-    setMode('edit');
+    document.body.dataset.mode = 'edit';
     const host = document.getElementById('side-body');
     ModeEdit.activate(host);
   }
 
   return {
-    init, currentDoc, documents, reloadDoc, refreshSide, setStageExtra,
+    init, currentDoc, documents, reloadDoc, reloadAll, refreshSide, setStageExtra,
     openFiles, select: select_,
   };
 })();
