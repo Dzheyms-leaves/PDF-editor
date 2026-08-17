@@ -1,0 +1,6 @@
+# Lightweight CPU OCR — no GPU, no system packages, ~80 MB of ONNX models.
+# This is the sensible baseline for any machine without an NVIDIA card.
+rapidocr-onnxruntime>=1.3.0
+
+# Optional alternative; also needs the Tesseract binary on PATH.
+# pytesseract>=0.3.10

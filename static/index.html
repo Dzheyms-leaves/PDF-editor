@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Workbench</title>
+<!-- Inline so the packaged build needs no extra asset and never 404s. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2316140f'/%3E%3Cpath d='M9 7h9l6 6v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z' fill='none' stroke='%23c1893f' stroke-width='2'/%3E%3Cpath d='M18 7v6h6' fill='none' stroke='%23c1893f' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">PDF WORKBENCH<small>ANTUMBRA</small></div>
+
+    <div class="modes" id="modes">
+      <button class="mode-btn active" data-mode="edit">Edit</button>
+      <button class="mode-btn" data-mode="po">Purchase orders</button>
+      <button class="mode-btn" data-mode="panels">Panels</button>
+      <button class="mode-btn" data-mode="stamp">Logo stamp</button>
+    </div>
+
+    <div class="sep"></div>
+    <button class="btn sm" id="btn-open">Open PDFs</button>
+    <input type="file" id="file-input" accept="application/pdf,.pdf" multiple>
+
+    <div class="doc-tabs" id="doc-tabs"></div>
+    <div class="topbar-spacer"></div>
+
+    <button class="btn icon ghost" id="btn-undo" title="Undo (Ctrl+Z)" disabled>&#8630;</button>
+    <button class="btn icon ghost" id="btn-redo" title="Redo (Ctrl+Y)" disabled>&#8631;</button>
+    <div class="sep"></div>
+    <button class="btn sm" id="btn-settings" title="OCR engines and settings">Settings</button>
+    <button class="btn sm primary" id="btn-save" disabled>Save PDF</button>
+  </header>
+
+  <div class="workspace">
+    <aside class="rail">
+      <div class="rail-head">
+        <span>Pages</span>
+        <span id="page-count">0</span>
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+      <div style="padding:9px; border-top:1px solid var(--border-soft); display:flex; gap:5px; flex-wrap:wrap;">
+        <button class="btn sm ghost" id="btn-sel-all" title="Select all pages">All</button>
+        <button class="btn sm ghost" id="btn-sel-none" title="Clear selection">None</button>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <div class="stage-bar" id="stage-bar">
+        <button class="btn sm ghost" id="btn-prev">&#8249;</button>
+        <span id="page-indicator" style="font-family:var(--font-display); font-size:12px; min-width:76px; text-align:center;">— / —</span>
+        <button class="btn sm ghost" id="btn-next">&#8250;</button>
+        <div class="sep"></div>
+        <button class="btn sm ghost" id="btn-zoom-out">&minus;</button>
+        <span id="zoom-label" style="font-family:var(--font-display); font-size:12px; min-width:44px; text-align:center;">100%</span>
+        <button class="btn sm ghost" id="btn-zoom-in">+</button>
+        <button class="btn sm ghost" id="btn-zoom-fit">Fit</button>
+        <div class="sep"></div>
+        <div id="stage-extra" class="row tight"></div>
+      </div>
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div class="page-holder" id="page-holder" style="display:none;">
+          <img id="page-img" alt="Page">
+          <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="empty" id="stage-empty" style="max-width:420px; text-align:center; margin-top:12vh;">
+          <p style="font-family:var(--font-display); color:var(--accent); letter-spacing:.1em; font-size:11px;">// NOTHING LOADED</p>
+          <p>Drop PDFs anywhere in this window, or use <strong>Open PDFs</strong>.</p>
+          <p style="font-size:12px; color:var(--text-dim);">
+            Everything runs locally on this machine — no file is uploaded anywhere.
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <aside class="side">
+      <div class="side-body" id="side-body"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div id="modal-root"></div>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/ui.js"></script>
+<script src="/static/js/viewer.js"></script>
+<script src="/static/js/mode-edit.js"></script>
+<script src="/static/js/mode-po.js"></script>
+<script src="/static/js/mode-panels.js"></script>
+<script src="/static/js/mode-stamp.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
