@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from . import APP_NAME, __version__, config
 from .pdfcompat import pymupdf
 from .routers import (
+    batch_routes,
     designer_routes,
     documents,
     edit,
@@ -30,6 +31,7 @@ app.include_router(ocr_routes.router)
 app.include_router(extract_routes.router)
 app.include_router(stamp.router)
 app.include_router(designer_routes.router)
+app.include_router(batch_routes.router)
 
 
 @app.exception_handler(ValueError)

@@ -19,6 +19,7 @@
       <button class="mode-btn" data-mode="po">Purchase orders</button>
       <button class="mode-btn" data-mode="panels">Panels</button>
       <button class="mode-btn" data-mode="designer">Designer</button>
+      <button class="mode-btn" data-mode="batch">Batch</button>
       <button class="mode-btn" data-mode="stamp">Logo stamp</button>
     </div>
 
@@ -67,6 +68,9 @@
           <img id="page-img" alt="Page">
           <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
+        <div class="batch-stage" id="batch-stage" hidden>
+          <div class="batch-canvas" id="batch-canvas"></div>
+        </div>
         <div class="designer-stage" id="designer-stage" hidden>
           <div class="designer-canvas" id="designer-canvas"></div>
         </div>
@@ -96,6 +100,7 @@
 <script src="/static/js/mode-po.js"></script>
 <script src="/static/js/mode-panels.js"></script>
 <script src="/static/js/mode-designer.js"></script>
+<script src="/static/js/mode-batch.js"></script>
 <script src="/static/js/mode-stamp.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

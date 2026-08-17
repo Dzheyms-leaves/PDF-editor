@@ -13,6 +13,7 @@ window.App = (() => {
     po: () => ModePO,
     panels: () => ModePanels,
     designer: () => ModeDesigner,
+    batch: () => ModeBatch,
     stamp: () => ModeStamp,
   };
 
@@ -91,6 +92,17 @@ window.App = (() => {
       const index = state.docs.findIndex((d) => d.doc_id === id);
       if (index >= 0) state.docs[index] = fresh;
       Viewer.refresh(fresh);
+      renderTabs();
+    } catch (error) { UI.err(error.message); }
+  }
+
+  /** Re-read every document, after an edit that touched more than one. */
+  async function reloadAll() {
+    try {
+      state.docs = await API.get('/api/documents');
+      if (!currentDoc()) state.currentId = state.docs[0]?.doc_id || null;
+      const doc = currentDoc();
+      if (doc) Viewer.refresh(doc);
       renderTabs();
     } catch (error) { UI.err(error.message); }
   }
@@ -337,7 +349,7 @@ window.App = (() => {
   }
 
   return {
-    init, currentDoc, documents, reloadDoc, refreshSide, setStageExtra,
+    init, currentDoc, documents, reloadDoc, reloadAll, refreshSide, setStageExtra,
     openFiles, select: select_,
   };
 })();

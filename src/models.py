@@ -656,6 +656,84 @@ class DesignToPanelsRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Job packs and batch operations
+# --------------------------------------------------------------------------
+
+class PackSource(BaseModel):
+    doc_id: str
+    title: str = ""                              # blank falls back to filename
+
+
+class PackCover(BaseModel):
+    enabled: bool = True
+    title: str = ""
+    project: str = ""
+    client: str = ""
+    reference: str = ""
+    revision: str = ""
+    date: str = ""                               # blank means today
+    prepared_by: str = ""
+    notes: str = ""
+    logo_asset: Optional[str] = None
+
+
+class PackRequest(BaseModel):
+    sources: List[PackSource] = []
+    cover: PackCover = PackCover()
+    contents: bool = True
+    bookmarks: bool = True
+    page_numbers: bool = True
+    number_format: str = "Page {page} of {total}"
+    number_position: Literal[
+        "bottom-left", "bottom-centre", "bottom-right",
+        "top-left", "top-centre", "top-right",
+    ] = "bottom-right"
+    footer: str = ""
+    start_number: int = 1
+    filename: str = "job-pack.pdf"
+
+
+class BatchRequest(BaseModel):
+    doc_ids: List[str] = []
+    operation: Literal["stamp", "watermark", "rotate", "optimise", "flatten", "scrub"]
+    params: Dict[str, Any] = {}
+    in_place: bool = False                       # otherwise download a ZIP
+
+
+class BatchSplitRequest(BaseModel):
+    doc_ids: List[str] = []
+    every: int = 0
+    ranges: str = ""
+
+
+class BatchRenameRequest(BaseModel):
+    doc_ids: List[str] = []
+    pattern: str = "{name}"
+    project: str = ""
+    revision: str = ""
+
+
+class BatchMergeRequest(BaseModel):
+    doc_ids: List[str] = []
+    filename: str = "merged.pdf"
+    bookmarks: bool = True
+
+
+class BatchOutcome(BaseModel):
+    doc_id: str
+    filename: str
+    pages: int = 0
+    ok: bool = True
+    detail: str = ""
+
+
+class BatchResult(BaseModel):
+    status: str = "success"
+    message: str = ""
+    outcomes: List[BatchOutcome] = []
+
+
+# --------------------------------------------------------------------------
 # Misc
 # --------------------------------------------------------------------------
 
