@@ -23,6 +23,41 @@ PO_FIELDS = [
 ]
 
 
+_NUMERIC_FIELDS = {"quantity", "unit_price", "total_price", "line_no"}
+
+
+def to_number(value: object):
+    """Parse '$3,452.67' / '1.00' / '35%' into a number, or return None.
+
+    Used so Excel receives real numbers it can total, rather than text that
+    silently breaks every SUM in the sheet.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    percent = text.endswith("%")
+    cleaned = text.rstrip("%").strip()
+    for symbol in ("$", "£", "€", "AUD", "USD", "NZD", " "):
+        cleaned = cleaned.replace(symbol, "")
+    cleaned = cleaned.replace(",", "").strip()
+    negative = cleaned.startswith("(") and cleaned.endswith(")")
+    if negative:
+        cleaned = cleaned[1:-1]
+    try:
+        number = float(cleaned)
+    except ValueError:
+        return None
+    if negative:
+        number = -number
+    if percent:
+        number /= 100.0
+    return number
+
+
 def _csv_bytes(rows: Sequence[Sequence[str]], delimiter: str = ",") -> bytes:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer, delimiter=delimiter, lineterminator="\r\n")
@@ -126,7 +161,12 @@ def purchase_order_xlsx(result: PurchaseOrderResult) -> bytes:
         cell.alignment = Alignment(vertical="center")
 
     for item in result.line_items:
-        row = [getattr(item, key, "") or "" for key, _label in PO_FIELDS]
+        row = []
+        for key, _label in PO_FIELDS:
+            raw = getattr(item, key, "") or ""
+            # Numeric columns go in as numbers so the sheet can be totalled.
+            number = to_number(raw) if key in _NUMERIC_FIELDS else None
+            row.append(number if number is not None else raw)
         row.extend(item.extra.get(key, "") for key in extra_keys)
         sheet.append(row)
 

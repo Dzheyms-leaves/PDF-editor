@@ -11,6 +11,8 @@ window.ModePO = (() => {
   let forceOcr = false;
   let engineChoice = '';
   let resultsHost = null;
+  let edited = false;      // a cell has been corrected by hand
+  let batch = [];          // results when several POs are read at once
 
   const COLUMNS = [
     ['line_no', '#', 42],
@@ -71,11 +73,59 @@ window.ModePO = (() => {
           force_ocr: forceOcr,
           engine: engineChoice || null,
         });
+        batch = [];
+        edited = false;
         renderResults();
         showTable(true);
         const count = result.line_items.length;
         if (count) UI.ok(`Found ${count} line item${count === 1 ? '' : 's'}`);
         else UI.toast('No line items recognised — try Region copy, or force OCR');
+        App.refreshSide();
+      } catch (error) { UI.err(error.message); }
+    });
+  }
+
+  /** Read every open PDF and merge the line items into one table. */
+  async function extractAll(button) {
+    const docs = App.documents();
+    if (!docs.length) { UI.err('Open some PDFs first'); return; }
+    await UI.busy(button, async () => {
+      try {
+        batch = await API.post('/api/purchase-orders/batch', {
+          doc_ids: docs.map((d) => d.doc_id),
+          force_ocr: forceOcr,
+          engine: engineChoice || null,
+        });
+        const good = batch.filter((r) => r.line_items.length);
+        if (!good.length) {
+          UI.err('No line items found in any of the open PDFs');
+          return;
+        }
+        // Merge, tagging each row with the order it came from.
+        const merged = {
+          ...good[0],
+          filename: `${good.length} purchase orders`,
+          line_items: [],
+          warnings: [],
+        };
+        good.forEach((entry) => {
+          entry.line_items.forEach((item) => {
+            merged.line_items.push({
+              ...item,
+              extra: {
+                ...(item.extra || {}),
+                source: entry.header.po_number || entry.filename,
+              },
+            });
+          });
+          entry.warnings.forEach((w) => merged.warnings.push(`${entry.filename}: ${w}`));
+        });
+        merged.line_items.forEach((item, index) => { item.line_no = index + 1; });
+        result = merged;
+        edited = false;
+        renderResults();
+        showTable(true);
+        UI.ok(`${merged.line_items.length} line items from ${good.length} orders`);
         App.refreshSide();
       } catch (error) { UI.err(error.message); }
     });
@@ -90,6 +140,39 @@ window.ModePO = (() => {
   function copyCell(node, text) {
     if (!text) return;
     UI.copyFrom(node, text);
+  }
+
+  /** Turn a cell into an input so a mis-parsed value can be corrected. */
+  function editCell(td, item, key) {
+    if (td.querySelector('input')) return;
+    const original = cellValue(item, key);
+    const input = el('input', {
+      type: 'text', value: original,
+      style: 'width:100%; background:var(--surface-2); border:1px solid var(--accent);'
+        + ' color:var(--text); font-family:var(--font-display); font-size:11.5px;'
+        + ' padding:2px 4px; border-radius:3px;',
+    });
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = (save) => {
+      const value = save ? input.value : original;
+      if (save) {
+        item[key] = key === 'line_no'
+          ? (parseInt(value, 10) || null)
+          : (value || null);
+        edited = true;
+      }
+      td.textContent = value;
+      if (save) App.refreshSide();
+    };
+    input.addEventListener('blur', () => commit(true));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+      else if (event.key === 'Escape') { event.preventDefault(); commit(false); }
+    });
   }
 
   function rowText(item) {
@@ -129,6 +212,7 @@ window.ModePO = (() => {
     }, [
       el('div', { class: 'row', style: 'margin-bottom:12px' }, [
         el('h2', { class: 'section', text: 'Order details', style: 'margin:0; flex:1' }),
+        edited ? el('span', { class: 'badge info', text: 'edited by hand' }) : null,
         sourceBadge,
       ]),
       entries.length ? kv : el('p', { class: 'empty', text: 'No header fields were recognised.' }),
@@ -160,9 +244,12 @@ window.ModePO = (() => {
         const value = cellValue(item, key);
         const td = el('td', {
           class: `copy-cell${key === 'description' ? ' po-desc' : ''}`,
-          text: value, title: value ? 'Click to copy' : '',
+          text: value,
+          title: value ? 'Click to copy · double-click to correct' : 'Double-click to fill in',
         });
-        if (value) td.addEventListener('click', () => copyCell(td, value));
+        td.addEventListener('click', () => copyCell(td, cellValue(item, key)));
+        // Double-click to fix anything the parser got wrong before exporting.
+        td.addEventListener('dblclick', () => editCell(td, item, key));
         return td;
       });
       extraKeys.forEach((k) => {
@@ -214,10 +301,13 @@ window.ModePO = (() => {
     host.appendChild(el('p', { class: 'hint',
       text: 'Reads the PO into fields and line items. Born-digital PDFs use the embedded text layer; scans fall through to OCR automatically.' }));
 
-    const extractBtn = el('button', { class: 'btn primary', style: 'width:100%',
-      text: 'Read purchase order' });
+    const extractBtn = el('button', { class: 'btn primary', style: 'flex:1',
+      text: 'Read this PO' });
     extractBtn.addEventListener('click', () => extract(extractBtn));
-    host.appendChild(extractBtn);
+    const allBtn = el('button', { class: 'btn', style: 'flex:1',
+      text: `Read all ${App.documents().length}` });
+    allBtn.addEventListener('click', () => extractAll(allBtn));
+    host.appendChild(el('div', { class: 'row' }, [extractBtn, allBtn]));
 
     const forceBox = el('input', { type: 'checkbox', onChange: (e) => { forceOcr = e.target.checked; } });
     forceBox.checked = forceOcr;

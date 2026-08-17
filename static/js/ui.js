@@ -105,18 +105,26 @@ window.UI = (() => {
 
   function confirm(message, { title = 'Are you sure?', danger = false } = {}) {
     return new Promise((resolve) => {
+      // close() triggers onClose, which would settle the promise as "cancelled"
+      // before an action's own answer lands. Settle once, answer first.
+      let settled = false;
+      const answer = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
       modal({
         title,
         body: el('p', { text: message, style: 'margin:0; line-height:1.6;' }),
         actions: [
-          { label: 'Cancel', onClick: (close) => { close(); resolve(false); } },
+          { label: 'Cancel', onClick: (close) => { answer(false); close(); } },
           {
             label: danger ? 'Yes, do it' : 'Continue',
             kind: danger ? 'danger' : 'primary',
-            onClick: (close) => { close(); resolve(true); },
+            onClick: (close) => { answer(true); close(); },
           },
         ],
-        onClose: () => resolve(false),
+        onClose: () => answer(false),
       });
     });
   }

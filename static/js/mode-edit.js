@@ -78,6 +78,8 @@ window.ModeEdit = (() => {
         return;
       }
       await App.reloadDoc();
+      // Keep the markup list in step with what was just added.
+      await loadAnnotations();
     } catch (error) {
       UI.err(error.message);
     }
@@ -262,6 +264,77 @@ window.ModeEdit = (() => {
     }
   }
 
+  async function loadAnnotations() {
+    const host = document.getElementById('annot-list');
+    if (!host || !doc()) return;
+    let list = [];
+    try {
+      list = await API.get(`/api/documents/${doc().doc_id}/annotations?page=${Viewer.page}`);
+    } catch (error) {
+      host.innerHTML = '';
+      host.appendChild(el('p', { class: 'hint', text: error.message, style: 'margin:0' }));
+      return;
+    }
+    if (!document.getElementById('annot-list')) return;  // panel was rebuilt
+
+    host.innerHTML = '';
+    if (!list.length) {
+      host.appendChild(el('p', {
+        class: 'hint', style: 'margin:0',
+        text: 'Nothing marked up on this page yet.',
+      }));
+      return;
+    }
+
+    list.forEach((annot) => {
+      const label = annot.text
+        ? `${annot.kind} · ${annot.text.slice(0, 28)}`
+        : annot.kind;
+      const row = el('div', { class: 'queue-item', style: 'cursor:default' }, [
+        el('span', {
+          style: `width:10px;height:10px;border-radius:2px;flex:0 0 auto;background:${annot.colour || '#c1893f'}`,
+        }),
+        el('span', { class: 'q-name', text: label, title: label }),
+        el('button', {
+          class: 'btn sm ghost', text: '⌖', title: 'Show where this is',
+          onClick: () => {
+            if (annot.rect) Viewer.setHighlights([annot.rect], 0);
+          },
+        }),
+        el('button', {
+          class: 'btn sm ghost', text: '✕', title: 'Delete this markup',
+          onClick: async () => {
+            try {
+              await API.post(`/api/documents/${doc().doc_id}/annotations/delete`, {
+                page: Viewer.page, indices: [annot.index],
+              });
+              UI.ok('Markup deleted');
+              await App.reloadDoc();
+              App.refreshSide();
+            } catch (error) { UI.err(error.message); }
+          },
+        }),
+      ]);
+      host.appendChild(row);
+    });
+
+    host.appendChild(el('button', {
+      class: 'btn sm danger', style: 'width:100%; margin-top:6px',
+      text: `Delete all ${list.length} on this page`,
+      onClick: async () => {
+        if (!await UI.confirm(`Delete all markup on page ${Viewer.page}?`, { danger: true })) return;
+        try {
+          await API.post(`/api/documents/${doc().doc_id}/annotations/delete`, {
+            page: Viewer.page, indices: list.map((a) => a.index),
+          });
+          UI.ok('Markup cleared');
+          await App.reloadDoc();
+          App.refreshSide();
+        } catch (error) { UI.err(error.message); }
+      },
+    }));
+  }
+
   // ---------------------------------------------------------------- page ops
 
   async function pageOp(path, body, label) {
@@ -330,6 +403,14 @@ window.ModeEdit = (() => {
 
     host.appendChild(el('div', { class: 'out', id: 'edit-output',
       text: 'Region text will appear here.', style: 'max-height:120px; margin-bottom:6px;' }));
+
+    // Markup already on this page
+    host.appendChild(el('h2', { class: 'section', text: 'Markup on this page' }));
+    const annotHost = el('div', { id: 'annot-list' }, [
+      el('p', { class: 'hint', text: 'Loading…', style: 'margin:0' }),
+    ]);
+    host.appendChild(annotHost);
+    loadAnnotations();
 
     // Page operations
     host.appendChild(el('h2', { class: 'section', text: 'Pages' }));
@@ -597,5 +678,6 @@ window.ModeEdit = (() => {
     activate(host) { build(host); setTool(tool); },
     deactivate() { Viewer.setInteraction('none'); },
     refresh(host) { build(host); setTool(tool); },
+    onPage() { loadAnnotations(); },
   };
 })();

@@ -324,9 +324,15 @@ def _is_totals_line(line: Line, description_band: Optional[Tuple[float, float]])
 def collect_body_lines(
     grid: PageGrid, header_index: int, header_cells: Sequence[HeaderCell]
 ) -> List[Line]:
-    """Lines belonging to the table body, stopping at totals or a big gap."""
+    """Lines belonging to the table body, stopping at totals or a big gap.
+
+    ``header_index`` of -1 means "start at the top of the page" — used when a
+    table continues onto a page that does not repeat its header.
+    """
+    if not grid.lines:
+        return []
     median = grid.median_line_height
-    header_line = grid.lines[header_index]
+    header_line = grid.lines[header_index] if header_index >= 0 else grid.lines[0]
     description_band: Optional[Tuple[float, float]] = None
     for cell in header_cells:
         if cell.field == "description":
@@ -445,9 +451,6 @@ def parse_line_items(
 
         items.append(item)
 
-    for position, item in enumerate(items, start=1):
-        if item.line_no is None:
-            item.line_no = position
     return items
 
 
@@ -842,6 +845,10 @@ def parse_purchase_order(
     header_fields: Dict[str, str] = {}
     all_items: List[POLineItem] = []
     columns: List[str] = []
+    # Carried across pages so a table that continues without repeating its
+    # header still parses against the right columns.
+    last_cells: Optional[List[HeaderCell]] = None
+    last_bands: Optional[List[Tuple[float, float]]] = None
 
     for grid in grids:
         if not grid.words:
@@ -880,6 +887,15 @@ def parse_purchase_order(
             header_index, cells = found
             body = collect_body_lines(grid, header_index, cells)
             bands = column_bands(cells, compute_boundaries(cells, body))
+        elif last_cells is not None:
+            # A long order continues onto the next page without repeating its
+            # header. Reuse the previous page's columns, but only when the page
+            # actually looks like table rows — otherwise a terms-and-conditions
+            # page would be mined for junk line items.
+            candidate_body = collect_body_lines(grid, -1, last_cells)
+            if not _looks_like_table_continuation(candidate_body, last_cells, last_bands):
+                continue
+            cells, bands, body = last_cells, last_bands, candidate_body
         else:
             result.warnings.append(
                 f"Page {grid.page_number}: no line-item table header recognised"
@@ -890,6 +906,13 @@ def parse_purchase_order(
             columns = [c.text for c in cells]
         items = parse_line_items(grid, cells, bands, body)
         all_items.extend(items)
+        last_cells, last_bands = list(cells), list(bands)
+
+    # Number the items once across the whole order, so a table continuing onto
+    # a second page keeps counting instead of restarting at 1.
+    for position, item in enumerate(all_items, start=1):
+        if item.line_no is None:
+            item.line_no = position
 
     result.columns = columns
     result.line_items = all_items
@@ -913,6 +936,32 @@ def parse_purchase_order(
             "No line items were found — try Region OCR, or save a column template for this supplier"
         )
     return result
+
+
+def _looks_like_table_continuation(
+    body: Sequence[Line],
+    cells: Sequence[HeaderCell],
+    bands: Sequence[Tuple[float, float]],
+) -> bool:
+    """Does this headerless page really carry rows of the previous table?
+
+    Requires at least one line with numbers in two different numeric columns.
+    Prose happens to put a number in one band often enough; landing in two
+    distinct ones by accident is rare.
+    """
+    anchor_indices = [
+        idx for idx, cell in enumerate(cells) if cell.field in NUMERIC_ANCHORS
+    ]
+    if len(anchor_indices) < 2:
+        return False
+    for line in body:
+        hits = sum(
+            1 for idx in anchor_indices
+            if _looks_numeric(line.text_between(bands[idx][0], bands[idx][1]))
+        )
+        if hits >= 2:
+            return True
+    return False
 
 
 def _guess_header_index(grid: PageGrid) -> Optional[int]:

@@ -101,6 +101,36 @@ def extract_purchase_order(doc_id: str, req: POExtractRequest) -> PurchaseOrderR
         doc.close()
 
 
+@router.post("/purchase-orders/batch", response_model=List[PurchaseOrderResult])
+def extract_purchase_orders(
+    doc_ids: List[str] = Body(..., embed=True),
+    force_ocr: bool = Body(default=False, embed=True),
+    engine: Optional[str] = Body(default=None, embed=True),
+) -> List[PurchaseOrderResult]:
+    """Read several purchase orders in one call.
+
+    A failure on one document is reported in that document's warnings rather
+    than aborting the batch.
+    """
+    results: List[PurchaseOrderResult] = []
+    for doc_id in doc_ids:
+        try:
+            results.append(
+                extract_purchase_order(
+                    doc_id,
+                    POExtractRequest(force_ocr=force_ocr, engine=engine),
+                )
+            )
+        except HTTPException as exc:
+            results.append(
+                PurchaseOrderResult(
+                    doc_id=doc_id, filename=doc_id,
+                    warnings=[f"Could not read this document: {exc.detail}"],
+                )
+            )
+    return results
+
+
 @router.post("/documents/{doc_id}/purchase-order/export")
 def export_purchase_order(
     doc_id: str,

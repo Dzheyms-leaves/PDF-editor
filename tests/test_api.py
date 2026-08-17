@@ -275,3 +275,58 @@ def test_config_grouping_finds_identical_panels():
     assert len(groups) == 1
     assert groups[0]["count"] == 2
     assert set(groups[0]["panel_ids"]) == {"a", "b"}
+
+
+# ------------------------------------------------------- close-all / batch
+
+def test_close_all_documents(client, simple_pdf):
+    first = upload(client, simple_pdf, "a.pdf")
+    second = upload(client, simple_pdf, "b.pdf")
+    assert len(client.get("/api/documents").json()) == 2
+
+    response = client.delete("/api/documents")
+    assert response.status_code == 200
+    assert response.json()["data"]["closed"] == 2
+    assert client.get("/api/documents").json() == []
+    assert client.get(f"/api/documents/{first}").status_code == 404
+    assert client.get(f"/api/documents/{second}").status_code == 404
+
+
+def test_close_all_keeps_assets(client, simple_pdf, logo_png):
+    """Clearing PDFs must not throw away an uploaded logo or signature."""
+    upload(client, simple_pdf)
+    asset = client.post(
+        "/api/assets", files={"file": ("logo.png", logo_png, "image/png")}
+    ).json()
+
+    client.delete("/api/documents")
+    assert client.get(f"/api/assets/{asset['asset_id']}").status_code == 200
+
+
+def test_close_all_on_empty_session(client):
+    response = client.delete("/api/documents")
+    assert response.status_code == 200
+    assert response.json()["data"]["closed"] == 0
+
+
+def test_batch_purchase_orders(client, samples):
+    a = upload(client, (samples / "po_sample_a.pdf").read_bytes(), "a.pdf")
+    b = upload(client, (samples / "po_sample_b.pdf").read_bytes(), "b.pdf")
+
+    results = client.post(
+        "/api/purchase-orders/batch", json={"doc_ids": [a, b]}
+    ).json()
+    assert len(results) == 2
+    numbers = {r["header"]["po_number"] for r in results}
+    assert numbers == {"PO-10297", "00111797"}
+    assert sum(len(r["line_items"]) for r in results) == 4
+
+
+def test_batch_reports_a_bad_id_without_failing_the_rest(client, samples):
+    good = upload(client, (samples / "po_sample_a.pdf").read_bytes(), "a.pdf")
+    results = client.post(
+        "/api/purchase-orders/batch", json={"doc_ids": [good, "does-not-exist"]}
+    ).json()
+    assert len(results) == 2
+    assert results[0]["header"]["po_number"] == "PO-10297"
+    assert results[1]["warnings"]

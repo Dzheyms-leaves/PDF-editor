@@ -47,8 +47,20 @@ A genuine PDF editor, not a viewer with annotations bolted on.
 - **Watermarks and Bates numbering**, and **Make searchable** to add an invisible
   OCR text layer to a scan.
 
+- **Markup manager** — everything already on the current page is listed, so you
+  can locate or delete an individual annotation without reaching for undo.
+
 Every operation is undoable (`Ctrl+Z` / `Ctrl+Y`), and a failed operation leaves
 the document untouched rather than half-written.
+
+### Viewer
+- **Text selection** (`Text` button) puts an invisible selectable layer over the
+  page, so you can drag across text and `Ctrl+C` it like any PDF reader.
+- **Find** (`Ctrl+F`) searches the whole document, highlights every hit on the
+  page and steps through them with Enter / Shift+Enter.
+- **Fit** and **Width** zoom modes, plus **Clear all** to close every open PDF
+  at once.
+- Press **?** for the keyboard-shortcut list.
 
 ### Purchase orders
 Reads a PO into header fields and a line-item table, then makes every value one
@@ -73,6 +85,14 @@ item codes routinely arrive detached from their row. It handles:
   `PO-10297`), while ignoring the neighbouring address block that shares the line.
 - **Which party is you** — set your company names in Settings, and the *other*
   party is reported as the counterparty.
+- **Tables continuing onto later pages** that do not repeat their header. A page
+  is only treated as a continuation when it really carries rows, so a
+  terms-and-conditions page is never mined for junk items.
+
+**Read all** processes every open PDF in one go and merges the results into a
+single table tagged with the order each row came from — useful when a batch of
+POs arrives together. Any cell can be **double-clicked to correct** before
+export, and Excel receives real numbers it can total rather than text.
 
 If a supplier's layout needs help, **Save this layout as a template**; future POs
 matching that supplier reuse the saved columns.
@@ -170,7 +190,7 @@ src/
   extract/                  textgrid · purchase_order · panels · templates
   routers/                  documents · edit · ocr_routes · extract_routes · stamp
 static/                     Vanilla JS front end, no CDN, fully offline
-tests/                      85 tests
+tests/                      103 tests
 ```
 
 ## Tests

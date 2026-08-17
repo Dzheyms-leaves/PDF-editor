@@ -18,6 +18,10 @@ window.Viewer = (() => {
     strokeColour: '#c1893f',
     selection: null,       // last rect in PDF coords
     selectedPages: new Set(),
+    fitMode: 'page',       // page | width
+    textLayerOn: false,
+    highlights: [],        // search hits on the current page, in PDF coords
+    activeHighlight: -1,
   };
 
   const dom = {};
@@ -31,6 +35,7 @@ window.Viewer = (() => {
     dom.indicator = document.getElementById('page-indicator');
     dom.zoomLabel = document.getElementById('zoom-label');
     dom.pageCount = document.getElementById('page-count');
+    dom.textLayer = document.getElementById('text-layer');
   }
 
   function pageInfo() {
@@ -41,14 +46,22 @@ window.Viewer = (() => {
   function displayWidth() {
     const info = pageInfo();
     if (!info) return 0;
-    if (state.fit) {
-      const available = dom.wrap.clientWidth - 48;
-      const rotated = info.rotation % 180 !== 0;
-      const w = rotated ? info.height : info.width;
-      return Math.max(240, Math.min(available, w * 2));
-    }
     const rotated = info.rotation % 180 !== 0;
-    return (rotated ? info.height : info.width) * state.zoom;
+    const pw = rotated ? info.height : info.width;
+    const ph = rotated ? info.width : info.height;
+
+    if (state.fit) {
+      const availableWidth = dom.wrap.clientWidth - 48;
+      if (state.fitMode === 'width') {
+        return Math.max(240, availableWidth);
+      }
+      // Fit the whole page: constrain by height as well, so a portrait page
+      // is fully visible instead of running off the bottom.
+      const availableHeight = dom.wrap.clientHeight - 48;
+      const byHeight = availableHeight * (pw / ph);
+      return Math.max(240, Math.min(availableWidth, byHeight));
+    }
+    return pw * state.zoom;
   }
 
   function render() {
@@ -80,10 +93,84 @@ window.Viewer = (() => {
     dom.overlay.setAttribute('width', width);
     dom.overlay.setAttribute('height', Math.round(width * (ph / pw)));
 
+    dom.textLayer.style.width = `${width}px`;
+    dom.textLayer.style.height = `${Math.round(width * (ph / pw))}px`;
+
     dom.indicator.textContent = `${state.page} / ${state.doc.total_pages}`;
     dom.pageCount.textContent = String(state.doc.total_pages);
     dom.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
     clearOverlay();
+    drawHighlights();
+    if (state.textLayerOn) loadTextLayer();
+  }
+
+  // ---------------------------------------------------------- text layer
+
+  async function loadTextLayer() {
+    if (!state.doc) return;
+    const docId = state.doc.doc_id;
+    const pageNo = state.page;
+    let layer;
+    try {
+      layer = await API.get(`/api/documents/${docId}/pages/${pageNo}/text`);
+    } catch (_) { return; }
+    // The user may have paged away while the request was in flight.
+    if (!state.doc || state.doc.doc_id !== docId || state.page !== pageNo) return;
+
+    const scale = dom.img.width / (layer.width || 1);
+    dom.textLayer.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+
+    for (const word of layer.words) {
+      if (!word.text.trim()) continue;
+      const height = (word.y1 - word.y0) * scale;
+      const width = (word.x1 - word.x0) * scale;
+      if (height < 1 || width < 1) continue;
+      const span = document.createElement('span');
+      span.textContent = word.text;
+      span.style.left = `${word.x0 * scale}px`;
+      span.style.top = `${word.y0 * scale}px`;
+      span.style.fontSize = `${height}px`;
+      // Squeeze each word onto its real box so selection tracks the glyphs.
+      span.dataset.width = String(width);
+      fragment.appendChild(span);
+    }
+    dom.textLayer.appendChild(fragment);
+
+    // Measure once, then scale — avoids a layout thrash per word.
+    for (const span of dom.textLayer.children) {
+      const target = parseFloat(span.dataset.width);
+      const actual = span.getBoundingClientRect().width;
+      if (actual > 0 && target > 0) {
+        span.style.transform = `scaleX(${target / actual})`;
+      }
+    }
+  }
+
+  function setTextLayer(on) {
+    state.textLayerOn = on;
+    dom.textLayer.classList.toggle('on', on);
+    if (on) loadTextLayer(); else dom.textLayer.innerHTML = '';
+  }
+
+  // ----------------------------------------------------------- highlights
+
+  function setHighlights(rects, activeIndex = -1) {
+    state.highlights = rects || [];
+    state.activeHighlight = activeIndex;
+    drawHighlights();
+  }
+
+  function drawHighlights() {
+    if (!state.highlights.length) return;
+    state.highlights.forEach((rect, index) => {
+      const active = index === state.activeHighlight;
+      drawRect(rect, {
+        fill: active ? 'rgba(193,137,63,.45)' : 'rgba(193,137,63,.20)',
+        stroke: active ? '#c1893f' : 'rgba(193,137,63,.5)',
+        width: active ? 1.4 : 0.7,
+      });
+    });
   }
 
   function renderThumbs() {
@@ -300,7 +387,11 @@ window.Viewer = (() => {
     render();
   }
 
-  function fit() { state.fit = true; render(); }
+  function fit(mode = 'page') {
+    state.fit = true;
+    state.fitMode = mode;
+    render();
+  }
 
   function setInteraction(kind, handlers = {}) {
     state.interaction = kind;
@@ -310,6 +401,8 @@ window.Viewer = (() => {
     dom.overlay.style.cursor = kind === 'none' ? 'default' : 'crosshair';
     dom.overlay.style.pointerEvents = kind === 'none' ? 'none' : 'auto';
     clearOverlay();
+    // Search hits outlive a tool change — redraw them.
+    drawHighlights();
   }
 
   function selectedPages() {
@@ -331,6 +424,7 @@ window.Viewer = (() => {
   return {
     init, setDocument, refresh, goto, setZoom, fit, render, renderThumbs,
     setInteraction, clearOverlay, drawRect, drawPath, selectedPages, setSelectedPages,
+    setTextLayer, setHighlights,
     get state() { return state; },
     get page() { return state.page; },
     get doc() { return state.doc; },

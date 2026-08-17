@@ -177,3 +177,107 @@ def test_export_round_trip(samples, po_a):
 
     text = exporters.purchase_order_text(po_a)
     assert text.count("\n") >= len(po_a.line_items)
+
+
+# --------------------------------------------------- multi-page continuation
+
+def _multipage_pdf():
+    """Page 1 has the table header, page 2 continues it, page 3 is prose."""
+    from src.pdfcompat import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((40, 60), "Purchase Order Number", fontsize=10)
+    page.insert_text((40, 76), "PO-55512", fontsize=10)
+    page.insert_text((40, 200), "Description", fontsize=9)
+    page.insert_text((300, 200), "Quantity", fontsize=9)
+    page.insert_text((380, 200), "Unit Price", fontsize=9)
+    page.insert_text((470, 200), "Amount", fontsize=9)
+    for index, row in enumerate([
+        ("DACM-A relay module", "2.00", "82.78", "165.56"),
+        ("DUS360 sensor", "1.00", "138.00", "138.00"),
+    ]):
+        y = 230 + index * 22
+        for x, value in zip((40, 300, 380, 470), row):
+            page.insert_text((x, y), value, fontsize=9)
+
+    second = doc.new_page()
+    for index, row in enumerate([
+        ("PD-PCN node adaptor", "3.00", "278.58", "835.74"),
+        ("DTP170 panel", "4.00", "99.00", "396.00"),
+    ]):
+        y = 100 + index * 22
+        for x, value in zip((40, 300, 380, 470), row):
+            second.insert_text((x, y), value, fontsize=9)
+
+    third = doc.new_page()
+    third.insert_text((40, 100), "Terms and conditions of supply", fontsize=11)
+    third.insert_text((40, 130), "Payment is due within 30 days of invoice date.", fontsize=9)
+    third.insert_text((40, 150), "Goods remain our property until paid in full.", fontsize=9)
+
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture(scope="module")
+def po_multipage(tmp_path_factory):
+    path = tmp_path_factory.mktemp("po") / "multi.pdf"
+    path.write_bytes(_multipage_pdf())
+    return _parse(path)
+
+
+def test_table_continues_onto_a_page_with_no_header(po_multipage):
+    assert len(po_multipage.line_items) == 4
+    assert [i.part_code for i in po_multipage.line_items] == [
+        "DACM-A", "DUS360", "PD-PCN", "DTP170",
+    ]
+
+
+def test_continuation_items_keep_their_page_number(po_multipage):
+    assert [i.page for i in po_multipage.line_items] == [1, 1, 2, 2]
+
+
+def test_line_numbers_run_across_pages(po_multipage):
+    """Numbering must not restart at 1 on the continuation page."""
+    assert [i.line_no for i in po_multipage.line_items] == [1, 2, 3, 4]
+
+
+def test_prose_page_yields_no_line_items(po_multipage):
+    for item in po_multipage.line_items:
+        assert "Payment" not in (item.description or "")
+        assert "property" not in (item.description or "")
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("$3,452.67", 3452.67),
+    ("1.00", 1.0),
+    ("35%", 0.35),
+    ("(120.50)", -120.5),
+    ("138.0045", 138.0045),
+    ("", None),
+    ("n/a", None),
+    (None, None),
+])
+def test_to_number(raw, expected):
+    from src.exporters import to_number
+    assert to_number(raw) == expected
+
+
+def test_xlsx_writes_real_numbers(po_a):
+    """Excel must receive numbers it can total, not text."""
+    import io
+
+    from openpyxl import load_workbook
+
+    from src import exporters
+
+    book = load_workbook(io.BytesIO(exporters.purchase_order_xlsx(po_a)))
+    sheet = book["Line items"]
+    headings = [c.value for c in sheet[1]]
+    qty_col = headings.index("Qty") + 1
+    total_col = headings.index("Line total") + 1
+
+    assert isinstance(sheet.cell(row=2, column=qty_col).value, (int, float))
+    assert isinstance(sheet.cell(row=2, column=total_col).value, (int, float))
+    assert sheet.cell(row=3, column=total_col).value == pytest.approx(413.90)

@@ -46,6 +46,32 @@ window.App = (() => {
     document.getElementById('btn-save').disabled = !has;
     document.getElementById('btn-undo').disabled = !has || !currentDoc().can_undo;
     document.getElementById('btn-redo').disabled = !has || !currentDoc().can_redo;
+    document.getElementById('btn-clear-all').disabled = state.docs.length === 0;
+  }
+
+  async function clearAll() {
+    if (!state.docs.length) return;
+    const count = state.docs.length;
+    const confirmed = await UI.confirm(
+      `Close all ${count} open PDF${count === 1 ? '' : 's'}? `
+      + 'Anything you have not saved will be lost.',
+      { title: 'Clear all PDFs', danger: true },
+    );
+    if (!confirmed) return;
+    try {
+      await API.del('/api/documents');
+    } catch (error) {
+      UI.err(error.message);
+      return;
+    }
+    state.docs = [];
+    state.currentId = null;
+    Viewer.refresh(null);
+    Viewer.setHighlights([]);
+    closeFind();
+    renderTabs();
+    refreshSide();
+    UI.ok(`Closed ${count} PDF${count === 1 ? '' : 's'}`);
   }
 
   function select_(docId) {
@@ -121,6 +147,88 @@ window.App = (() => {
     const host = document.getElementById('stage-extra');
     host.innerHTML = '';
     [].concat(nodes || []).forEach((n) => host.appendChild(n));
+  }
+
+  // ---------------------------------------------------------------- find
+
+  const find = { hits: [], index: -1, term: '' };
+
+  function openFind() {
+    document.getElementById('findbar').style.display = '';
+    const input = document.getElementById('find-input');
+    input.focus();
+    input.select();
+  }
+
+  function closeFind() {
+    document.getElementById('findbar').style.display = 'none';
+    find.hits = [];
+    find.index = -1;
+    find.term = '';
+    document.getElementById('find-count').textContent = '—';
+    Viewer.setHighlights([]);
+  }
+
+  async function runFind(term) {
+    const doc = currentDoc();
+    const count = document.getElementById('find-count');
+    if (!doc || !term.trim()) {
+      find.hits = [];
+      find.index = -1;
+      count.textContent = '—';
+      Viewer.setHighlights([]);
+      return;
+    }
+    try {
+      const response = await API.post(`/api/documents/${doc.doc_id}/text/find`, {
+        find: term, replace: '', pages: { mode: 'all' }, limit: 500,
+      });
+      find.hits = response.hits || [];
+      find.term = term;
+      find.index = find.hits.length ? 0 : -1;
+      count.textContent = find.hits.length ? `1 of ${find.hits.length}` : 'no matches';
+      if (find.hits.length) showHit(0);
+      else Viewer.setHighlights([]);
+    } catch (error) {
+      UI.err(error.message);
+    }
+  }
+
+  function showHit(index) {
+    if (!find.hits.length) return;
+    find.index = (index + find.hits.length) % find.hits.length;
+    const hit = find.hits[find.index];
+    document.getElementById('find-count').textContent =
+      `${find.index + 1} of ${find.hits.length}`;
+    if (Viewer.page !== hit.page) Viewer.goto(hit.page);
+    // Highlight every hit on this page, emphasising the current one.
+    const onPage = find.hits.filter((h) => h.page === hit.page);
+    Viewer.setHighlights(onPage.map((h) => h.rect), onPage.indexOf(hit));
+  }
+
+  function shortcutsDialog() {
+    const rows = [
+      ['Ctrl/Cmd + Z', 'Undo'],
+      ['Ctrl/Cmd + Y', 'Redo'],
+      ['Ctrl/Cmd + S', 'Save a copy of the PDF'],
+      ['Ctrl/Cmd + F', 'Find in document'],
+      ['Enter / Shift+Enter', 'Next / previous match'],
+      ['Esc', 'Close find or dialog'],
+      ['Page Up / Page Down', 'Previous / next page'],
+      ['Ctrl/Shift + click thumbnail', 'Select several pages'],
+      ['Drag thumbnail', 'Reorder pages'],
+      ['1 – 9  (Panels mode)', 'Copy that button label'],
+      ['N  (Panels mode)', 'Mark panel done and move on'],
+    ];
+    UI.modal({
+      title: 'Keyboard shortcuts',
+      body: el('dl', { class: 'kv', style: 'grid-template-columns:190px 1fr' },
+        rows.flatMap(([key, what]) => [
+          el('dt', { text: key, style: 'text-transform:none; font-family:var(--font-display)' }),
+          el('dd', { text: what, style: 'cursor:default' }),
+        ])),
+      actions: [{ label: 'Close' }],
+    });
   }
 
   // ------------------------------------------------------------ settings
@@ -249,7 +357,43 @@ window.App = (() => {
     document.getElementById('btn-next').addEventListener('click', () => Viewer.goto(Viewer.page + 1));
     document.getElementById('btn-zoom-in').addEventListener('click', () => Viewer.setZoom(Viewer.state.zoom * 1.25));
     document.getElementById('btn-zoom-out').addEventListener('click', () => Viewer.setZoom(Viewer.state.zoom / 1.25));
-    document.getElementById('btn-zoom-fit').addEventListener('click', () => Viewer.fit());
+    document.getElementById('btn-zoom-fit').addEventListener('click', () => Viewer.fit('page'));
+    document.getElementById('btn-zoom-width').addEventListener('click', () => Viewer.fit('width'));
+    document.getElementById('btn-clear-all').addEventListener('click', clearAll);
+    document.getElementById('btn-help').addEventListener('click', shortcutsDialog);
+
+    // Find
+    document.getElementById('btn-find').addEventListener('click', openFind);
+    document.getElementById('find-close').addEventListener('click', closeFind);
+    document.getElementById('find-next').addEventListener('click', () => showHit(find.index + 1));
+    document.getElementById('find-prev').addEventListener('click', () => showHit(find.index - 1));
+
+    let findTimer = null;
+    const findInput = document.getElementById('find-input');
+    findInput.addEventListener('input', (event) => {
+      clearTimeout(findTimer);
+      const term = event.target.value;
+      findTimer = setTimeout(() => runFind(term), 260);
+    });
+    findInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (find.term !== findInput.value) runFind(findInput.value);
+        else showHit(find.index + (event.shiftKey ? -1 : 1));
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFind();
+      }
+    });
+
+    // Selectable text layer
+    const textBtn = document.getElementById('btn-select-text');
+    textBtn.addEventListener('click', () => {
+      const on = !Viewer.state.textLayerOn;
+      Viewer.setTextLayer(on);
+      textBtn.classList.toggle('active', on);
+      if (on) UI.toast('Text selection on — drag over the page, then Ctrl+C');
+    });
     document.getElementById('btn-sel-all').addEventListener('click', () => {
       const doc = currentDoc();
       if (doc) Viewer.setSelectedPages(Array.from({ length: doc.total_pages }, (_, i) => i + 1));
@@ -311,6 +455,11 @@ window.App = (() => {
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         document.getElementById('btn-save').click();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        openFind();
+      } else if (event.key === 'Escape' && !typing) {
+        closeFind();
       } else if (!typing && event.key === 'PageDown') {
         Viewer.goto(Viewer.page + 1);
       } else if (!typing && event.key === 'PageUp') {

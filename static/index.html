@@ -23,6 +23,7 @@
 
     <div class="sep"></div>
     <button class="btn sm" id="btn-open">Open PDFs</button>
+    <button class="btn sm danger" id="btn-clear-all" disabled title="Close every open PDF">Clear all</button>
     <input type="file" id="file-input" accept="application/pdf,.pdf" multiple>
 
     <div class="doc-tabs" id="doc-tabs"></div>
@@ -57,13 +58,28 @@
         <button class="btn sm ghost" id="btn-zoom-out">&minus;</button>
         <span id="zoom-label" style="font-family:var(--font-display); font-size:12px; min-width:44px; text-align:center;">100%</span>
         <button class="btn sm ghost" id="btn-zoom-in">+</button>
-        <button class="btn sm ghost" id="btn-zoom-fit">Fit</button>
+        <button class="btn sm ghost" id="btn-zoom-fit" title="Fit whole page">Fit</button>
+        <button class="btn sm ghost" id="btn-zoom-width" title="Fit page width">Width</button>
+        <div class="sep"></div>
+        <button class="btn sm ghost" id="btn-find" title="Find in document (Ctrl+F)">Find</button>
+        <button class="btn sm ghost" id="btn-select-text" title="Select and copy text">Text</button>
+        <button class="btn sm ghost" id="btn-help" title="Keyboard shortcuts">?</button>
         <div class="sep"></div>
         <div id="stage-extra" class="row tight"></div>
       </div>
+
+      <div class="findbar" id="findbar" style="display:none;">
+        <input type="text" id="find-input" placeholder="Find in document…" autocomplete="off">
+        <span id="find-count">—</span>
+        <button class="btn sm ghost" id="find-prev" title="Previous (Shift+Enter)">&#8249;</button>
+        <button class="btn sm ghost" id="find-next" title="Next (Enter)">&#8250;</button>
+        <button class="btn sm ghost" id="find-close" title="Close (Esc)">&#10005;</button>
+      </div>
+
       <div class="canvas-wrap" id="canvas-wrap">
         <div class="page-holder" id="page-holder" style="display:none;">
           <img id="page-img" alt="Page">
+          <div class="text-layer" id="text-layer"></div>
           <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
         <div class="empty" id="stage-empty" style="max-width:420px; text-align:center; margin-top:12vh;">

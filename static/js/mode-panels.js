@@ -62,6 +62,16 @@ window.ModePanels = (() => {
 
   // ------------------------------------------------------------ behaviour
 
+  /** Select a panel and show it: switch document if needed, then jump to its page. */
+  function selectPanel(entry) {
+    activeId = entry.panel_id;
+    if (entry.source_doc && doc()?.doc_id !== entry.source_doc) {
+      App.select(entry.source_doc);
+    }
+    if (entry.page) Viewer.goto(entry.page);
+    App.refreshSide();
+  }
+
   function markDoneAndNext(entry) {
     entry.rows.flat().forEach((l) => { l.copied = false; });
     entry.done = true;
@@ -150,7 +160,7 @@ window.ModePanels = (() => {
         el('span', { class: 'q-name', text: entry.name, title: entry.name }),
         el('span', { style: 'color:var(--text-dim); font-size:11px', text: `p${entry.page}` }),
       ]);
-      row.addEventListener('click', () => { activeId = entry.panel_id; App.refreshSide(); });
+      row.addEventListener('click', () => selectPanel(entry));
       list.appendChild(row);
     });
     host.appendChild(list);
@@ -175,7 +185,7 @@ window.ModePanels = (() => {
       const body = el('div', { class: 'cg-body' });
       members.forEach((member) => {
         const btn = el('button', { class: `cg-panel${member.done ? ' is-done' : ''}`, text: member.name });
-        btn.addEventListener('click', () => { activeId = member.panel_id; App.refreshSide(); });
+        btn.addEventListener('click', () => selectPanel(member));
         body.appendChild(btn);
       });
       body.appendChild(el('button', {

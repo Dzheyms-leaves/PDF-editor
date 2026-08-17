@@ -52,6 +52,19 @@ def get_document(doc_id: str) -> DocumentInfo:
     return describe_or_404(doc_id)
 
 
+@router.delete("/documents", response_model=OperationResult)
+def close_all_documents() -> OperationResult:
+    """Close every open PDF but keep uploaded assets (logos, signatures)."""
+    count = len(STORE.documents)
+    for doc_id in list(STORE.documents.keys()):
+        STORE.remove(doc_id)
+    return OperationResult(
+        status="success",
+        message=f"Closed {count} document{'' if count == 1 else 's'}",
+        data={"closed": count},
+    )
+
+
 @router.delete("/documents/{doc_id}", response_model=OperationResult)
 def delete_document(doc_id: str) -> OperationResult:
     get_document_or_404(doc_id)
