@@ -7,7 +7,7 @@ import io
 from typing import Dict, List, Optional, Sequence
 
 from .extract.panels import included_labels
-from .models import PanelEntry, PurchaseOrderResult
+from .models import PanelDesign, PanelEntry, PurchaseOrderResult
 
 PO_FIELDS = [
     ("line_no", "Line"),
@@ -219,3 +219,63 @@ def panels_xlsx(entries: Sequence[PanelEntry]) -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Antumbra panel designs
+# --------------------------------------------------------------------------
+
+DESIGN_FIELDS = [
+    "Panel",
+    "Location",
+    "Reference",
+    "Product",
+    "Product code",
+    "Button finish",
+    "Rim finish",
+    "Quantity",
+    "12NC",
+    "Position",
+    "Line 1",
+    "Line 2",
+    "Icon",
+]
+
+
+def designs_csv(designs: Sequence[PanelDesign]) -> bytes:
+    """One row per engraved position, with each panel's order details repeated.
+
+    Wide enough to drive the engraver and to be checked line by line against a
+    purchase order, which is the form the workshop already reads.
+    """
+    from .designer import catalogue as _catalogue, icons as _icons
+
+    rows: List[List[str]] = [list(DESIGN_FIELDS)]
+    for design in designs:
+        code = _catalogue.part_code(
+            design.family, design.series, design.region, design.buttons,
+            design.button_finish, design.rim_finish,
+        )
+        product = _catalogue.product_name(design.family, design.series)
+        button = _catalogue.button_finish(design.button_finish).name
+        rim = _catalogue.rim_finish(design.rim_finish).name
+        slots = _catalogue.button_slots(design.family, design.buttons)
+        by_index = {int(item.index): item for item in design.engraving}
+
+        if slots <= 0:
+            rows.append([design.name, design.location, design.reference, product,
+                         code, button, rim, str(design.quantity),
+                         design.order_12nc, "", "", "", ""])
+            continue
+
+        for index in range(slots):
+            item = by_index.get(index)
+            lines = [str(line).strip() for line in (item.lines if item else [])]
+            lines += ["", ""]
+            icon = _icons.get(getattr(item, "icon", "") or "") if item else None
+            rows.append([
+                design.name, design.location, design.reference, product, code,
+                button, rim, str(design.quantity), design.order_12nc,
+                str(index + 1), lines[0], lines[1], icon["name"] if icon else "",
+            ])
+    return _csv_bytes(rows)

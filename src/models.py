@@ -602,6 +602,60 @@ class PanelExportRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Antumbra panel designer
+# --------------------------------------------------------------------------
+
+class ButtonEngraving(BaseModel):
+    """What is lasered onto one button position."""
+
+    index: int = 0
+    lines: List[str] = []                       # one or two rows of text
+    icon: Optional[str] = None                  # key into the icon library
+    icon_side: Literal["left", "top"] = "left"
+
+
+class PanelDesign(BaseModel):
+    design_id: str
+    name: str = "Panel 1"
+    family: str = "B"                           # B | T | D
+    series: str = "P"                           # P | L
+    region: str = "A"                           # A | E
+    buttons: int = 6
+    button_finish: str = "W"
+    rim_finish: str = "A"
+    backlight: str = "white"
+    engraving: List[ButtonEngraving] = []
+    location: str = ""                          # where it goes on site
+    reference: str = ""                         # the customer's own reference
+    order_12nc: str = ""                        # Signify code, entered by hand
+    quantity: int = 1
+    notes: str = ""
+
+
+class DesignCheckResult(BaseModel):
+    ok: bool = True
+    part_code: str = ""
+    product: str = ""
+    slots: int = 0
+    errors: List[str] = []
+    warnings: List[str] = []
+    summary: List[List[str]] = []
+    layout: Dict[str, Any] = {}
+
+
+class DesignExportRequest(BaseModel):
+    designs: List[PanelDesign]
+    job_name: str = "antumbra-job"
+    project: str = ""
+    client: str = ""
+    fmt: Literal["pdf", "csv", "json"] = "pdf"
+
+
+class DesignToPanelsRequest(BaseModel):
+    designs: List[PanelDesign]
+
+
+# --------------------------------------------------------------------------
 # Misc
 # --------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 # PDF Workbench
 
-A local-first PDF editor, batch logo stamper, control-panel label extractor and
-OCR bench in one application. Everything runs on your machine — no PDF is ever
+A local-first PDF editor, batch logo stamper, control-panel label extractor,
+Antumbra panel designer and OCR bench in one application. Everything runs on your machine — no PDF is ever
 uploaded anywhere unless you explicitly configure a remote OCR endpoint.
 
 It merges and extends two earlier tools:
@@ -12,6 +12,7 @@ It merges and extends two earlier tools:
 | `antumbrapdfextractor.html` (browser, pdf.js) | **Panels** mode, both layout parsers ported, plus OCR for scanned sheets |
 | — | **Edit** mode: a full PDF editor |
 | — | **Purchase orders** mode: structured extraction with click-to-copy |
+| — | **Designer** mode: configure Antumbra panels and produce the engraving spec |
 
 ---
 
@@ -27,7 +28,7 @@ The server starts and your browser opens at `http://127.0.0.1:8000`.
 
 ---
 
-## The four modes
+## The five modes
 
 ### Edit
 A genuine PDF editor, not a viewer with annotations bolted on.
@@ -84,6 +85,53 @@ packs, identical-configuration grouping with "mark all N done", CSV in the layou
 EZcad2's variable-text feature expects, and the <kbd>1</kbd>–<kbd>9</kbd> /
 <kbd>N</kbd> shortcuts. Scanned sheets, which used to be a dead end, now route
 through OCR.
+
+### Designer
+Recreates the Dynalite Design Studio configurator as a local tab, and joins it up
+to the rest of the workbench.
+
+Pick the family (AntumbraButton, AntumbraTouch, AntumbraDisplay), the series
+(Antumbra or AntumbraLite), the region (Australian/American 75 x 116 mm, or
+European 86 x 86 mm) and the button count, then mix and match button and rim
+finishes. The panel is drawn live at the millimetres it will actually be made
+at; click a button on it to engrave that position with up to two lines of text
+and an icon from a 40-icon library covering lighting, scenes, shades, climate,
+hotel and media. A **Daylight / Backlit** toggle previews the panel lit, which is
+how you catch a label that disappears against a dark fascia.
+
+The product code is assembled from the published Antumbra structure and shown
+live — `PA6BPA-WA` is a six-button Australian/American panel with white buttons
+and an aluminium rim:
+
+```
+PA 6 B P A - W A
+│  │ │ │ │   │ └── rim finish     W White · M Magnesium · C Chrome · A Aluminium
+│  │ │ │ │   └──── button finish  W S M polycarbonate · A G N V P metallic
+│  │ │ │ └──────── region         A Australian/American · E European
+│  │ │ └────────── series         P Antumbra · L AntumbraLite
+│  │ └──────────── family         B Button · T Touch · D Display
+│  └────────────── button count (button families only)
+└───────────────── Antumbra range
+```
+
+Three outputs:
+
+- **Spec sheet PDF** — one page per panel: a **1:1** front elevation you can
+  print at 100% and hold the part against, numbered position callouts, the
+  finish block with colour swatches, and the engraving schedule.
+- **Schedule CSV** — one row per engraved position with the order details
+  repeated, so it reads as both a laser schedule and a checkable order line.
+- **Send to Panels queue** — hands the job to **Panels** mode, expanded to one
+  entry per physical panel, where it picks up the copy chips, the
+  identical-configuration grouping and the EZcad2 export.
+
+Jobs save and reopen as JSON, so a design can be revisited when the client
+changes a label.
+
+The Signify **12NC** ordering number is deliberately *not* generated. It is
+allocated by Signify rather than derived from the configuration, so the designer
+carries it as a field you fill in from your quote — inventing one would put a
+wrong number on a purchase order.
 
 ### Logo stamp
 Batch-stamps a logo into genuine whitespace across many PDFs, evaluating
@@ -168,9 +216,12 @@ src/
   ocr/                      base · registry · deepseek · remote · fallback
                             native · service   (engine abstraction)
   extract/                  textgrid · purchase_order · panels · templates
-  routers/                  documents · edit · ocr_routes · extract_routes · stamp
+  designer/                 catalogue · icons · render · jobs
+                            (Antumbra products, geometry and spec sheets)
+  routers/                  documents · edit · ocr_routes · extract_routes
+                            stamp · designer_routes
 static/                     Vanilla JS front end, no CDN, fully offline
-tests/                      85 tests
+tests/                      114 tests
 ```
 
 ## Tests
@@ -183,6 +234,11 @@ The purchase-order tests are pinned against the two real supplier layouts in
 `tests/sample_data/`, asserting exact field and line-item values, so a
 regression in the column logic fails loudly.
 
+The designer tests assert the part codes against real published examples, check
+that no button escapes its plate, and render every family/series/region
+combination in the catalogue — a finish that cannot be drawn would otherwise
+become a broken order.
+
 ## Notes and limits
 
 - **Text editing** is redact-and-repaint, which is what PyMuPDF allows: the
@@ -193,6 +249,10 @@ regression in the column logic fails loudly.
   but will soften vector text.
 - **Redaction is irreversible** once saved — that is the point. Undo works within
   the session only.
+- **Antumbra geometry** in the designer is drawing-accurate, not a manufacturing
+  drawing: plate sizes and the button grid come from the published dimensions,
+  but tolerances, cut-outs and fixing centres are not modelled. Check a first-off
+  against the part.
 - Header-field detection on *scanned* POs is weaker than on born-digital ones,
   because it depends on the OCR engine's box accuracy. Line items hold up well;
   DeepSeek-OCR on a GPU improves both.

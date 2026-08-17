@@ -18,6 +18,7 @@
       <button class="mode-btn active" data-mode="edit">Edit</button>
       <button class="mode-btn" data-mode="po">Purchase orders</button>
       <button class="mode-btn" data-mode="panels">Panels</button>
+      <button class="mode-btn" data-mode="designer">Designer</button>
       <button class="mode-btn" data-mode="stamp">Logo stamp</button>
     </div>
 
@@ -66,6 +67,9 @@
           <img id="page-img" alt="Page">
           <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
+        <div class="designer-stage" id="designer-stage" hidden>
+          <div class="designer-canvas" id="designer-canvas"></div>
+        </div>
         <div class="empty" id="stage-empty" style="max-width:420px; text-align:center; margin-top:12vh;">
           <p style="font-family:var(--font-display); color:var(--accent); letter-spacing:.1em; font-size:11px;">// NOTHING LOADED</p>
           <p>Drop PDFs anywhere in this window, or use <strong>Open PDFs</strong>.</p>
@@ -91,6 +95,7 @@
 <script src="/static/js/mode-edit.js"></script>
 <script src="/static/js/mode-po.js"></script>
 <script src="/static/js/mode-panels.js"></script>
+<script src="/static/js/mode-designer.js"></script>
 <script src="/static/js/mode-stamp.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

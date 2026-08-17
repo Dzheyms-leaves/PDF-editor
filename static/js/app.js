@@ -12,6 +12,7 @@ window.App = (() => {
     edit: () => ModeEdit,
     po: () => ModePO,
     panels: () => ModePanels,
+    designer: () => ModeDesigner,
     stamp: () => ModeStamp,
   };
 
@@ -101,6 +102,9 @@ window.App = (() => {
     const previous = mode();
     if (previous?.deactivate) previous.deactivate();
     state.mode = next;
+    // Modes that take over the stage (the designer) hide the PDF furniture
+    // through this attribute rather than by poking at each control.
+    document.body.dataset.mode = next;
     document.querySelectorAll('.mode-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.mode === next);
     });
@@ -327,7 +331,7 @@ window.App = (() => {
       if (state.docs.length) select_(state.docs[0].doc_id);
     } catch (_) { /* fresh session */ }
     renderTabs();
-    setMode('edit');
+    document.body.dataset.mode = 'edit';
     const host = document.getElementById('side-body');
     ModeEdit.activate(host);
   }

@@ -315,6 +315,15 @@ window.ModePanels = (() => {
 
   return {
     id: 'panels',
+
+    /** Take panels built elsewhere — currently the Antumbra designer. */
+    adopt(entries) {
+      entries.forEach((entry) => {
+        queue.push({ ...entry, source_doc: null });
+      });
+      if (!active()) activeId = queue[0]?.panel_id || null;
+    },
+
     async activate(host) {
       try { engines = (await API.get('/api/ocr/capabilities')).engines || []; }
       catch (_) { engines = []; }

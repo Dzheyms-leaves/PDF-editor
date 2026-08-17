@@ -352,3 +352,89 @@ kbd {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--pending); }
+
+/* ------------------------------------------------------- Antumbra designer */
+
+/* The designer owns the whole stage, so the PDF paging furniture steps aside. */
+body[data-mode=designer] .rail,
+body[data-mode=designer] #stage-empty,
+body[data-mode=designer] .page-holder,
+body[data-mode=designer] #btn-prev,
+body[data-mode=designer] #btn-next,
+body[data-mode=designer] #page-indicator,
+body[data-mode=designer] #btn-zoom-in,
+body[data-mode=designer] #btn-zoom-out,
+body[data-mode=designer] #btn-zoom-fit,
+body[data-mode=designer] #zoom-label { display: none; }
+
+.designer-stage { display: flex; flex: 1; justify-content: center; align-items: flex-start; }
+/* Beats the class rule above, which would otherwise defeat the hidden attribute. */
+.designer-stage[hidden] { display: none; }
+.designer-canvas { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+/* A soft pool of light behind the panel, so finishes read the way they do on a wall. */
+.panel-frame {
+  padding: 40px 48px;
+  border-radius: 14px;
+  background: radial-gradient(120% 100% at 50% 0%, #2b2721 0%, #1a1712 62%, #141109 100%);
+  box-shadow: 0 24px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.panel-svg { display: block; filter: drop-shadow(0 10px 22px rgba(0,0,0,.55)); }
+.panel-svg.backlit { filter: drop-shadow(0 10px 26px rgba(0,0,0,.75)); }
+.panel-button { cursor: pointer; }
+.panel-button:hover rect:first-child { filter: brightness(1.06); }
+
+.panel-caption {
+  display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; justify-content: center;
+  font-family: var(--font-display); font-size: 11px; color: var(--text-dim);
+}
+.panel-caption .code { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+
+/* finish swatches */
+.swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.swatch {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px 4px 5px; font-size: 11px; color: var(--text-muted);
+}
+.swatch:hover { border-color: var(--accent); color: var(--text); }
+.swatch.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.chip-colour {
+  width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto;
+  border: 1px solid rgba(0,0,0,.45); box-shadow: inset 0 1px 1px rgba(255,255,255,.35);
+}
+
+/* button position selector */
+.pos-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.pos-chip {
+  width: 30px; height: 30px; border-radius: 6px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-muted); font-family: var(--font-display); font-size: 12px; font-weight: 700;
+}
+.pos-chip:hover { border-color: var(--accent); color: var(--text); }
+.pos-chip.filled { color: var(--text); border-color: var(--pending); }
+.pos-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+
+.icon-choice {
+  display: flex; align-items: center; gap: 8px; width: 100%; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 9px; font-size: 12.5px; color: var(--text);
+}
+.icon-choice:hover { border-color: var(--accent); }
+.icon-svg { stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+
+/* icon picker */
+.icon-grid { max-height: 52vh; overflow-y: auto; }
+.icon-group-name {
+  font-family: var(--font-display); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--text-dim); margin: 12px 0 6px;
+}
+.icon-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.icon-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px;
+  padding: 9px 4px; color: var(--text-muted); font-size: 10px; text-align: center;
+}
+.icon-cell:hover { border-color: var(--accent); color: var(--text); }
+
+.hint.warn { color: var(--pending); }
