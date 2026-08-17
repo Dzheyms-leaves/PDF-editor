@@ -347,3 +347,119 @@ def bom_xlsx(bom: "Bom") -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Workbook helpers
+# --------------------------------------------------------------------------
+
+def _workbook():
+    try:
+        from openpyxl import Workbook  # noqa: PLC0415
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("openpyxl is required for Excel export") from exc
+    return Workbook, Font, PatternFill, Alignment, get_column_letter
+
+
+def _head(sheet, headings, Font, PatternFill, Alignment) -> None:
+    """Style row 1 as a heading strip and freeze it."""
+    sheet.append(headings)
+    fill = PatternFill("solid", fgColor="FFE8E8E8")
+    for column in range(1, len(headings) + 1):
+        cell = sheet.cell(row=1, column=column)
+        cell.font = Font(bold=True)
+        cell.fill = fill
+        cell.alignment = Alignment(vertical="center")
+    sheet.freeze_panes = "A2"
+
+
+def _widths(sheet, widths, get_column_letter) -> None:
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+
+
+def designs_xlsx(designs: Sequence[PanelDesign]) -> bytes:
+    """The engraving schedule as a workbook: one sheet of positions, one of panels.
+
+    The positions sheet is what the engraver works from; the panels sheet is the
+    order summary, so one file covers both ends of the job.
+    """
+    from .designer import catalogue as _catalogue, icons as _icons
+
+    Workbook, Font, PatternFill, Alignment, get_column_letter = _workbook()
+    workbook = Workbook()
+
+    positions = workbook.active
+    positions.title = "Engraving"
+    _head(positions, ["Panel", "Location", "Product code", "Position",
+                      "Line 1", "Line 2", "Icon"], Font, PatternFill, Alignment)
+
+    panels = workbook.create_sheet("Panels")
+    _head(panels, ["Panel", "Location", "Reference", "Product", "Product code",
+                   "Button finish", "Rim finish", "Qty", "12NC", "Notes"],
+          Font, PatternFill, Alignment)
+
+    for design in designs:
+        code = _catalogue.part_code(
+            design.family, design.series, design.region, design.buttons,
+            design.button_finish, design.rim_finish)
+        panels.append([
+            design.name, design.location, design.reference,
+            _catalogue.product_name(design.family, design.series), code,
+            _catalogue.button_finish(design.button_finish).name,
+            _catalogue.rim_finish(design.rim_finish).name,
+            design.quantity, design.order_12nc, design.notes,
+        ])
+
+        by_index = {int(item.index): item for item in design.engraving}
+        for index in range(_catalogue.button_slots(design.family, design.buttons)):
+            item = by_index.get(index)
+            lines = [str(line).strip() for line in (item.lines if item else [])]
+            lines += ["", ""]
+            icon = _icons.get(getattr(item, "icon", "") or "") if item else None
+            positions.append([design.name, design.location, code, index + 1,
+                              lines[0], lines[1], icon["name"] if icon else ""])
+
+    _widths(positions, [26, 20, 16, 9, 20, 20, 18], get_column_letter)
+    _widths(panels, [26, 20, 14, 20, 16, 14, 14, 7, 16, 40], get_column_letter)
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def pack_manifest_xlsx(sections: Sequence[Dict[str, object]],
+                       renames: Sequence[Dict[str, str]] = (),
+                       front_matter: int = 0) -> bytes:
+    """A document register for a job pack, plus the rename plan if there is one."""
+    Workbook, Font, PatternFill, Alignment, get_column_letter = _workbook()
+    workbook = Workbook()
+
+    sheet = workbook.active
+    sheet.title = "Pack contents"
+    _head(sheet, ["#", "Title", "Pages", "Starts on page"],
+          Font, PatternFill, Alignment)
+    for position, section in enumerate(sections, start=1):
+        sheet.append([position, section.get("title", ""), section.get("pages", 0),
+                      section.get("start", 0)])
+    total = sum(int(section.get("pages", 0) or 0) for section in sections)
+    sheet.append([])
+    sheet.append(["", "Front matter", front_matter, ""])
+    sheet.append(["", "Total pages", front_matter + total, ""])
+    for row in (sheet.max_row - 1, sheet.max_row):
+        sheet.cell(row=row, column=2).font = Font(bold=True)
+        sheet.cell(row=row, column=3).font = Font(bold=True)
+    _widths(sheet, [5, 52, 9, 16], get_column_letter)
+
+    if renames:
+        plan = workbook.create_sheet("Rename plan")
+        _head(plan, ["From", "To"], Font, PatternFill, Alignment)
+        for row in renames:
+            plan.append([row.get("from", ""), row.get("to", "")])
+        _widths(plan, [46, 46], get_column_letter)
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()

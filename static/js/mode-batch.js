@@ -101,7 +101,7 @@ window.ModeBatch = (() => {
       return;
     }
 
-    const table = el('div', { class: 'batch-table' });
+    const table = el('div', { class: 'batch-table reticle' });
     table.appendChild(el('div', { class: 'batch-head' }, [
       el('span', { class: 'bt-pick' }),
       el('span', { class: 'bt-order', text: '#' }),
@@ -262,12 +262,17 @@ window.ModeBatch = (() => {
         sources: sources(), cover, ...opts,
       }, opts.filename),
     }));
-    host.appendChild(el('button', {
-      class: 'btn sm', style: 'width:100%; margin-top:6px', text: 'Merge only (no cover)',
-      onClick: () => guard() && download('/api/batch/merge', {
-        doc_ids: sources().map((s) => s.doc_id), bookmarks: opts.bookmarks,
-      }, 'merged.pdf'),
-    }));
+    host.appendChild(el('div', { class: 'row tight', style: 'margin-top:6px' }, [
+      el('button', { class: 'btn sm', style: 'flex:1', text: 'Merge only (no cover)',
+        onClick: () => guard() && download('/api/batch/merge', {
+          doc_ids: sources().map((s) => s.doc_id), bookmarks: opts.bookmarks,
+        }, 'merged.pdf') }),
+      el('button', { class: 'btn sm', style: 'flex:1', text: 'Register (Excel)',
+        title: 'Document register for this pack, plus the rename plan',
+        onClick: () => guard() && download('/api/batch/manifest', {
+          sources: sources(), cover, contents: opts.contents, ...naming,
+        }, 'pack-manifest.xlsx') }),
+    ]));
 
     buildTools(host);
   }

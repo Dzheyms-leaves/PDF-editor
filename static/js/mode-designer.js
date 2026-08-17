@@ -234,7 +234,7 @@ window.ModeDesigner = (() => {
         x: button.x, y: button.y, width: button.w, height: button.h, rx: button.r,
         fill,
         stroke: button.index === selected
-          ? '#c1893f'
+          ? '#00e5ff'
           : shade(buttonFinish.hex, backlit ? 0.26 : 0.74),
         'stroke-width': button.index === selected ? 0.55 : 0.25,
         'stroke-dasharray': button.zone ? '1 1' : null,
@@ -253,7 +253,7 @@ window.ModeDesigner = (() => {
       svg.appendChild(group);
     });
 
-    const frame = el('div', { class: 'panel-frame' });
+    const frame = el('div', { class: 'panel-frame reticle' });
     frame.appendChild(svg);
     host.appendChild(frame);
 
@@ -875,6 +875,11 @@ window.ModeDesigner = (() => {
       el('button', { class: 'btn sm', style: 'flex:1', text: 'Schedule CSV',
         disabled: !designs.length, onClick: () => download('csv') }),
     ]));
+    host.appendChild(el('button', {
+      class: 'btn sm', style: 'width:100%; margin-top:6px',
+      text: 'Engraving workbook (Excel)', disabled: !designs.length,
+      onClick: () => download('xlsx'),
+    }));
     host.appendChild(el('div', { class: 'row tight', style: 'margin-top:6px' }, [
       el('button', { class: 'btn sm', style: 'flex:1', text: 'Save job',
         disabled: !designs.length, onClick: () => download('json') }),

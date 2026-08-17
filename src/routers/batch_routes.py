@@ -8,8 +8,10 @@ from typing import Any, Dict, List, Tuple
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from .. import exporters
 from ..assemble import batch, pack
 from ..models import (
+    BatchManifestRequest,
     BatchMergeRequest,
     BatchOutcome,
     BatchRenameRequest,
@@ -206,3 +208,32 @@ def rename(req: BatchRenameRequest) -> StreamingResponse:
         files.append((batch.rename(req.pattern, filename, index, pages,
                                    req.project, req.revision), data))
     return _download(zip_bytes(files), "renamed.zip", "application/zip")
+
+
+@router.post("/manifest")
+def manifest(req: BatchManifestRequest) -> StreamingResponse:
+    """A document register for the pack, as a workbook."""
+    resolved = _resolve([s.doc_id for s in req.sources])
+    titles = {s.doc_id: s.title for s in req.sources}
+
+    rows = []
+    renames = []
+    for index, (doc_id, filename, _data) in enumerate(resolved, start=1):
+        pages = STORE.describe(doc_id).total_pages
+        rows.append((titles.get(doc_id) or filename.rsplit(".", 1)[0], pages))
+        if req.pattern:
+            renames.append({
+                "from": filename,
+                "to": batch.rename(req.pattern, filename, index, pages,
+                                   req.project, req.revision),
+            })
+
+    sections = pack.pack_outline(rows, cover=req.cover.enabled,
+                                 contents=req.contents)
+    front = (1 if req.cover.enabled else 0) + (
+        pack.toc_page_count(len(rows)) if req.contents else 0)
+
+    payload = exporters.pack_manifest_xlsx(sections, renames, front)
+    return _download(
+        payload, "pack-manifest.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

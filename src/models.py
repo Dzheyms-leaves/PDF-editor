@@ -648,7 +648,7 @@ class DesignExportRequest(BaseModel):
     job_name: str = "antumbra-job"
     project: str = ""
     client: str = ""
-    fmt: Literal["pdf", "csv", "json"] = "pdf"
+    fmt: Literal["pdf", "csv", "xlsx", "json"] = "pdf"
 
 
 class DesignToPanelsRequest(BaseModel):
@@ -744,6 +744,17 @@ class BatchSplitRequest(BaseModel):
 class BatchRenameRequest(BaseModel):
     doc_ids: List[str] = []
     pattern: str = "{name}"
+    project: str = ""
+    revision: str = ""
+
+
+class BatchManifestRequest(BaseModel):
+    """A document register for a pack, optionally with the rename plan."""
+
+    sources: List[PackSource] = []
+    cover: PackCover = PackCover()
+    contents: bool = True
+    pattern: str = ""
     project: str = ""
     revision: str = ""
 

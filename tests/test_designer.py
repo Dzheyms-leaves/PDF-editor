@@ -399,3 +399,31 @@ def test_engraving_templates_round_trip(client):
 def test_template_needs_a_name(client):
     assert client.post("/api/designer/templates",
                        json={"name": "  ", "slots": 6}).status_code == 400
+
+
+def test_engraving_workbook_has_a_sheet_for_each_end_of_the_job(client):
+    import io as _io
+
+    import openpyxl
+
+    response = client.post("/api/designer/export", json={
+        "designs": [design(quantity=4)], "job_name": "riverside", "fmt": "xlsx"})
+    assert response.status_code == 200
+    assert "riverside.xlsx" in response.headers["content-disposition"]
+
+    book = openpyxl.load_workbook(_io.BytesIO(response.content))
+    assert book.sheetnames == ["Engraving", "Panels"]
+
+    engraving = list(book["Engraving"].iter_rows(values_only=True))
+    assert engraving[0] == ("Panel", "Location", "Product code", "Position",
+                            "Line 1", "Line 2", "Icon")
+    # An empty location is an empty cell, which openpyxl reads back as None.
+    assert engraving[1] == ("Lobby keypad", None, "PA6BPA-WA", 1, "WELCOME", None,
+                            "Welcome")
+    # Every position appears, engraved or not, so the sheet is a full schedule.
+    assert len(engraving) == 1 + 6
+
+    panels = list(book["Panels"].iter_rows(values_only=True))
+    assert panels[1][0] == "Lobby keypad"
+    assert panels[1][4] == "PA6BPA-WA"
+    assert panels[1][7] == 4                     # quantity

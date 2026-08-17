@@ -93,6 +93,11 @@ def export(req: DesignExportRequest) -> Response:
         elif req.fmt == "csv":
             payload = exporters.designs_csv(req.designs)
             media, name = "text/csv; charset=utf-8", f"{stem}.csv"
+        elif req.fmt == "xlsx":
+            payload = exporters.designs_xlsx(req.designs)
+            media = ("application/vnd.openxmlformats-officedocument"
+                     ".spreadsheetml.sheet")
+            name = f"{stem}.xlsx"
         else:
             payload = json.dumps({
                 "job_name": req.job_name,

@@ -17,6 +17,21 @@ It merges and extends two earlier tools:
 
 ---
 
+## Look and feel
+
+Muted greys with neon signal colours, stark monospace throughout, bracketed
+groupings, branching trace lines down every list and crosshair reticles around
+whatever is under active watch — the interface reads as a live surveillance
+transcript rather than a document editor.
+
+Colour is signal, never decoration. Cyan is the active channel, lime means done
+or resolved, amber means attention, red means destructive. Nothing on screen is
+neon unless the interface is telling you something.
+
+**Exported documents deliberately do not follow this.** Spec sheets, job packs
+and quotations go to clients and onto a workshop bench, so they stay on a
+print-friendly palette that survives a monochrome laser printer.
+
 ## Quick start
 
 ```bash
@@ -122,6 +137,9 @@ Three outputs:
   finish block with colour swatches, and the engraving schedule.
 - **Schedule CSV** — one row per engraved position with the order details
   repeated, so it reads as both a laser schedule and a checkable order line.
+- **Engraving workbook (Excel)** — two sheets: *Engraving*, every position on
+  every panel for the operator, and *Panels*, the order summary with product
+  codes, finishes, quantities and 12NC.
 - **Send to Panels queue** — hands the job to **Panels** mode, expanded to one
   entry per physical panel, where it picks up the copy chips, the
   identical-configuration grouping and the EZcad2 export.
@@ -164,6 +182,10 @@ count or ranges, and rename by pattern (`{name} {n} {nn} {pages} {date}
 {project} {rev}`). Each either downloads as a ZIP, leaving the originals alone,
 or applies in place — where every document keeps its own undo, so an eight-file
 batch is eight separate undos, not one.
+
+**Register (Excel)** exports the pack as a document register — running order,
+title, page count and the page each starts on — plus the rename plan as a second
+sheet when a pattern is set.
 
 ### Logo stamp
 Batch-stamps a logo into genuine whitespace across many PDFs, evaluating
@@ -255,7 +277,7 @@ src/
   routers/                  documents · edit · ocr_routes · extract_routes
                             stamp · designer_routes · batch_routes
 static/                     Vanilla JS front end, no CDN, fully offline
-tests/                      149 tests
+tests/                      152 tests
 ```
 
 ## Tests
@@ -267,6 +289,9 @@ python -m pytest tests/ -q
 The purchase-order tests are pinned against the two real supplier layouts in
 `tests/sample_data/`, asserting exact field and line-item values, so a
 regression in the column logic fails loudly.
+
+Every export path that produces a spreadsheet is asserted cell by cell, so a
+column that silently moves fails the suite.
 
 The designer tests assert the part codes against real published examples, check
 that no button escapes its plate, and render every family/series/region

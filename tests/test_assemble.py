@@ -253,3 +253,42 @@ def test_rename_preview_follows_the_given_order(client):
     rows = client.post("/api/batch/rename/preview", json={
         "doc_ids": ids, "pattern": "{nn}_{name}"}).json()
     assert [row["to"] for row in rows] == ["01_B.pdf", "02_A.pdf"]
+
+
+# --------------------------------------------------------------- workbooks
+
+def _sheets(payload: bytes):
+    import io as _io
+
+    import openpyxl
+
+    return openpyxl.load_workbook(_io.BytesIO(payload))
+
+
+def test_pack_manifest_workbook_registers_every_document(client):
+    ids = [upload(client, make_pdf(3), "Spec.pdf"),
+           upload(client, make_pdf(2), "Board.pdf")]
+    response = client.post("/api/batch/manifest", json={
+        "sources": [{"doc_id": i, "title": ""} for i in ids],
+        "pattern": "{nn}_{name}"})
+    assert response.status_code == 200
+    assert "pack-manifest.xlsx" in response.headers["content-disposition"]
+
+    book = _sheets(response.content)
+    assert book.sheetnames == ["Pack contents", "Rename plan"]
+
+    rows = list(book["Pack contents"].iter_rows(values_only=True))
+    assert rows[0] == ("#", "Title", "Pages", "Starts on page")
+    assert rows[1] == (1, "Spec", 3, 3)          # after cover + contents
+    assert rows[2] == (2, "Board", 2, 6)
+    assert rows[-1][1:3] == ("Total pages", 7)
+
+    plan = list(book["Rename plan"].iter_rows(min_row=2, values_only=True))
+    assert plan == [("Spec.pdf", "01_Spec.pdf"), ("Board.pdf", "02_Board.pdf")]
+
+
+def test_manifest_omits_the_rename_sheet_without_a_pattern(client):
+    doc_id = upload(client, make_pdf(1), "Spec.pdf")
+    response = client.post("/api/batch/manifest",
+                           json={"sources": [{"doc_id": doc_id}]})
+    assert _sheets(response.content).sheetnames == ["Pack contents"]

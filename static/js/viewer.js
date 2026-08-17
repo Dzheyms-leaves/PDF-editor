@@ -15,7 +15,7 @@ window.Viewer = (() => {
     onRect: null,
     onInk: null,
     onPoint: null,
-    strokeColour: '#c1893f',
+    strokeColour: '#00e5ff',
     selection: null,       // last rect in PDF coords
     selectedPages: new Set(),
   };
@@ -155,7 +155,7 @@ window.Viewer = (() => {
       x: Math.min(rect.x0, rect.x1), y: Math.min(rect.y0, rect.y1),
       width: Math.abs(rect.x1 - rect.x0), height: Math.abs(rect.y1 - rect.y0),
       fill: attrs.fill || 'rgba(193,137,63,.18)',
-      stroke: attrs.stroke || '#c1893f',
+      stroke: attrs.stroke || '#00e5ff',
       'stroke-width': attrs.width || 1,
       'stroke-dasharray': attrs.dash || '',
       ...(attrs.extra || {}),

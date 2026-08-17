@@ -45,7 +45,7 @@ window.ModeStamp = (() => {
     if (placement.rect) {
       Viewer.drawRect(placement.rect, {
         fill: placement.is_manual_override ? 'rgba(124,139,106,.25)' : 'rgba(193,137,63,.28)',
-        stroke: placement.is_manual_override ? '#7c8b6a' : '#c1893f',
+        stroke: placement.is_manual_override ? '#a8ff1a' : '#00e5ff',
         width: 1.4,
       });
     }
