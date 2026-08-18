@@ -48,6 +48,7 @@ window.App = (() => {
     document.getElementById('btn-save').disabled = !has;
     document.getElementById('btn-undo').disabled = !has || !currentDoc().can_undo;
     document.getElementById('btn-redo').disabled = !has || !currentDoc().can_redo;
+    document.getElementById('btn-clear-all').disabled = !state.docs.length;
   }
 
   function select_(docId) {
@@ -66,6 +67,25 @@ window.App = (() => {
     if (doc) Viewer.setDocument(doc); else Viewer.refresh(null);
     renderTabs();
     refreshSide();
+  }
+
+  /** Unload every open PDF. Edits are already saved to each document's own
+     file, so this asks first: there is no undo for closing the lot. */
+  async function clearAll() {
+    if (!state.docs.length) return;
+    const count = state.docs.length;
+    if (!await UI.confirm(
+      `Close ${count} open PDF${count === 1 ? '' : 's'}? Anything you have not `
+      + 'saved to disk will be lost.', { danger: true })) return;
+    try {
+      await API.del('/api/documents');
+    } catch (error) { UI.err(error.message); return; }
+    state.docs = [];
+    state.currentId = null;
+    Viewer.refresh(null);
+    renderTabs();
+    refreshSide();
+    UI.ok(`Closed ${count} PDF${count === 1 ? '' : 's'}`);
   }
 
   async function openFiles(files) {
@@ -231,6 +251,7 @@ window.App = (() => {
   function bindGlobal() {
     document.getElementById('btn-open').addEventListener('click',
       () => document.getElementById('file-input').click());
+    document.getElementById('btn-clear-all').addEventListener('click', clearAll);
     document.getElementById('file-input').addEventListener('change', (event) => {
       openFiles(event.target.files);
       event.target.value = '';
@@ -350,7 +371,7 @@ window.App = (() => {
 
   return {
     init, currentDoc, documents, reloadDoc, reloadAll, refreshSide, setStageExtra,
-    openFiles, select: select_,
+    openFiles, clearAll, select: select_,
   };
 })();
 

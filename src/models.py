@@ -625,6 +625,8 @@ class PanelDesign(BaseModel):
     rim_finish: str = "A"
     backlight: str = "white"
     engraving: List[ButtonEngraving] = []
+    font: str = "sans"                          # id from catalogue.ENGRAVING_FONTS
+    text_size_mm: float = 0.0                   # 0 fits each label to its button
     location: str = ""                          # where it goes on site
     reference: str = ""                         # the customer's own reference
     order_12nc: str = ""                        # Signify code, entered by hand
@@ -648,7 +650,7 @@ class DesignExportRequest(BaseModel):
     job_name: str = "antumbra-job"
     project: str = ""
     client: str = ""
-    fmt: Literal["pdf", "csv", "xlsx", "json"] = "pdf"
+    fmt: Literal["pdf", "order", "csv", "xlsx", "json"] = "pdf"
 
 
 class DesignToPanelsRequest(BaseModel):

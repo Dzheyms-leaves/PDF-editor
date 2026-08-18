@@ -40,8 +40,24 @@ def check(design: PanelDesign) -> DesignCheckResult:
     except (ValueError, KeyError) as exc:
         return DesignCheckResult(ok=False, errors=[str(exc)])
 
+    try:
+        font = catalogue.engraving_font(design.font)
+        asked = catalogue.text_size_mm(design.text_size_mm)
+    except ValueError as exc:
+        return DesignCheckResult(ok=False, errors=[str(exc)])
+
     slots = catalogue.button_slots(design.family, design.buttons)
     warnings: List[str] = []
+
+    # A label never overruns its button: the size gives way instead, so say so
+    # rather than let a sheet come back engraved smaller than it was asked for.
+    if asked:
+        for index, size in render.fitted_sizes(design.model_dump()).items():
+            if size < asked - 0.05:
+                warnings.append(
+                    f"Position {index + 1}: too long for {asked:g} mm in "
+                    f"{font.name} - it will be engraved at {size:.1f} mm"
+                )
 
     limit = catalogue.MAX_CHARS_PER_LINE
     for item in design.engraving:
@@ -90,6 +106,11 @@ def export(req: DesignExportRequest) -> Response:
                 [d.model_dump() for d in req.designs], req.job_name, req.project,
                 req.client)
             media, name = "application/pdf", f"{stem}.pdf"
+        elif req.fmt == "order":
+            payload = render.order_form(
+                [d.model_dump() for d in req.designs], req.job_name, req.project,
+                req.client)
+            media, name = "application/pdf", f"{stem}-order-form.pdf"
         elif req.fmt == "csv":
             payload = exporters.designs_csv(req.designs)
             media, name = "text/csv; charset=utf-8", f"{stem}.csv"

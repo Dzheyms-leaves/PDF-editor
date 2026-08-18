@@ -36,7 +36,8 @@ window.ModeDesigner = (() => {
     const base = from ? JSON.parse(JSON.stringify(from)) : {
       family: 'B', series: 'P', region: 'A', buttons: 6,
       button_finish: 'W', rim_finish: 'A', backlight: 'white',
-      engraving: [], location: '', reference: '', order_12nc: '',
+      engraving: [], font: 'sans', text_size_mm: 0,
+      location: '', reference: '', order_12nc: '',
       quantity: 1, notes: '',
     };
     base.design_id = newId();
@@ -266,51 +267,86 @@ window.ModeDesigner = (() => {
     fitTexts(svg);
   }
 
+  /** Where the icon and the text sit inside one button, in millimetres.
+
+     This mirrors `engraving_boxes` in src/designer/render.py deliberately: the
+     preview and the exported sheet have to place a label identically, and the
+     right-hand column swaps the icon to the far side so it stays beside that
+     column's indicator. */
+  function engravingBoxes(button, item, hasIcon, hasLines) {
+    const area = button.text;
+    const { x: left, y: top, w: width, h: height } = area;
+    const mirrored = area.align === 'right';
+
+    if (hasIcon && hasLines && item.icon_side !== 'top') {
+      const side = Math.min(height * 0.52, width * 0.34);
+      const gap = side * 0.28;
+      if (mirrored) {
+        return { icon: [left + width - side, top + (height - side) / 2, side],
+          text: [left, top, width - side - gap, height] };
+      }
+      return { icon: [left, top + (height - side) / 2, side],
+        text: [left + side + gap, top, width - side - gap, height] };
+    }
+    if (hasIcon && hasLines) {                      // icon above the text
+      const side = Math.min(height * 0.42, width * 0.5);
+      return { icon: [left + (width - side) / 2, top + height * 0.14, side],
+        text: [left, top + height * 0.14 + side, width, height * 0.86 - side] };
+    }
+    if (hasIcon) {
+      const side = Math.min(height * 0.6, width * 0.7);
+      return { icon: [left + (width - side) / 2, top + (height - side) / 2, side],
+        text: null };
+    }
+    return { icon: null, text: [left, top, width, height] };
+  }
+
+  function fontFor(design) {
+    const fonts = cat.fonts || [];
+    return fonts.find((f) => f.id === (design.font || 'sans')) || fonts[0]
+      || { css: 'Helvetica, Arial, sans-serif', weight: 'normal' };
+  }
+
   function drawEngraving(group, button, ink) {
-    const item = (current().engraving || []).find((e) => e.index === button.index);
+    const design = current();
+    const item = (design.engraving || []).find((e) => e.index === button.index);
     if (!item) return;
     const lines = (item.lines || []).map((l) => String(l).trim()).filter(Boolean);
     const icon = item.icon ? iconById(item.icon) : null;
     if (!lines.length && !icon) return;
 
-    const area = button.text;
-    let textX = area.x;
-    let textW = area.w;
-    let textTop = area.y;
-    let textH = area.h;
-
-    if (icon && lines.length && item.icon_side !== 'top') {
-      const size = Math.min(area.h * 0.52, area.w * 0.34);
-      group.appendChild(iconGroup(icon, area.x, area.y + (area.h - size) / 2, size, ink));
-      const gap = size * 0.28;
-      textX = area.x + size + gap;
-      textW = area.w - size - gap;
-    } else if (icon && lines.length) {
-      const size = Math.min(area.h * 0.42, area.w * 0.5);
-      group.appendChild(iconGroup(icon, area.x + (area.w - size) / 2,
-        area.y + area.h * 0.14, size, ink));
-      textTop = area.y + area.h * 0.14 + size;
-      textH = area.h * 0.86 - size;
-    } else if (icon) {
-      const size = Math.min(area.h * 0.6, area.w * 0.7);
-      group.appendChild(iconGroup(icon, area.x + (area.w - size) / 2,
-        area.y + (area.h - size) / 2, size, ink));
-      return;
+    const boxes = engravingBoxes(button, item, Boolean(icon), Boolean(lines.length));
+    if (icon && boxes.icon) {
+      group.appendChild(iconGroup(icon, boxes.icon[0], boxes.icon[1], boxes.icon[2], ink));
     }
+    if (!lines.length || !boxes.text) return;
 
+    const [textX, textTop, textW, textH] = boxes.text;
     const centred = Boolean(icon && item.icon_side === 'top');
-    const size = Math.min(textH / (lines.length + 1.1), 3.0);
+    const mirrored = !centred && button.text.align === 'right';
+    const font = fontFor(design);
+    const ceiling = textH / (lines.length + 1.1);
+    const asked = parseFloat(design.text_size_mm) || 0;
+    const size = Math.min(asked || (cat.limits?.auto_text_mm || 3.0), ceiling);
     const leading = size * 1.24;
     let cursor = textTop + (textH - leading * lines.length) / 2 + size * 0.82;
 
+    let anchor = 'start';
+    if (centred) anchor = 'middle';
+    else if (mirrored) anchor = 'end';
+
     lines.forEach((line) => {
+      let x = textX;
+      if (centred) x = textX + textW / 2;
+      else if (mirrored) x = textX + textW;
       const node = svgEl('text', {
-        x: centred ? textX + textW / 2 : textX,
+        x,
         y: cursor,
         fill: ink,
         'font-size': size,
-        'font-family': 'Helvetica, Arial, sans-serif',
-        'text-anchor': centred ? 'middle' : 'start',
+        'font-family': font.css,
+        'font-weight': font.weight,
+        'text-anchor': anchor,
         'data-maxw': textW,
       });
       node.textContent = line;
@@ -806,6 +842,24 @@ window.ModeDesigner = (() => {
         } }),
     ]));
 
+    // -- how the words are cut -------------------------------------------
+    host.appendChild(el('h2', { class: 'section', text: 'Label style' }));
+    host.appendChild(field('Font', select(
+      (cat.fonts || []).map((f) => [f.id, f.name]), design.font || 'sans',
+      (value) => { design.font = value; renderPreview(); scheduleCheck(); },
+    ), 'Applies to every button on this panel, on screen and on the sheet.'));
+
+    host.appendChild(field('Text size', select(
+      [['0', 'Fit to the button']].concat(
+        (cat.text_sizes_mm || []).map((mm) => [String(mm), `${mm} mm`])),
+      String(design.text_size_mm || 0),
+      (value) => {
+        design.text_size_mm = parseFloat(value) || 0;
+        renderPreview();
+        scheduleCheck();
+      },
+    ), 'A label too long for the size you pick is engraved smaller, never dropped.'));
+
     // -- reusable label sets ---------------------------------------------
     host.appendChild(el('h2', { class: 'section', text: 'Label templates' }));
     if (templates.length) {
@@ -872,14 +926,18 @@ window.ModeDesigner = (() => {
       el('button', { class: 'btn sm primary', style: 'flex:1',
         text: 'Spec sheet PDF', disabled: !designs.length,
         onClick: () => download('pdf') }),
+      el('button', { class: 'btn sm primary', style: 'flex:1',
+        text: 'Order form PDF', disabled: !designs.length,
+        title: 'Engraving artwork at 1:1 on the Dynalite order sheet',
+        onClick: () => download('order') }),
+    ]));
+    host.appendChild(el('div', { class: 'row tight', style: 'margin-top:6px' }, [
       el('button', { class: 'btn sm', style: 'flex:1', text: 'Schedule CSV',
         disabled: !designs.length, onClick: () => download('csv') }),
+      el('button', { class: 'btn sm', style: 'flex:1',
+        text: 'Workbook (Excel)', disabled: !designs.length,
+        onClick: () => download('xlsx') }),
     ]));
-    host.appendChild(el('button', {
-      class: 'btn sm', style: 'width:100%; margin-top:6px',
-      text: 'Engraving workbook (Excel)', disabled: !designs.length,
-      onClick: () => download('xlsx'),
-    }));
     host.appendChild(el('div', { class: 'row tight', style: 'margin-top:6px' }, [
       el('button', { class: 'btn sm', style: 'flex:1', text: 'Save job',
         disabled: !designs.length, onClick: () => download('json') }),
@@ -917,7 +975,11 @@ window.ModeDesigner = (() => {
         const loaded = Array.isArray(data) ? data : data.designs;
         if (!Array.isArray(loaded) || !loaded.length) throw new Error('No panels in that file');
         designs.length = 0;
-        loaded.forEach((d) => designs.push({ ...d, design_id: d.design_id || newId() }));
+        // A job saved before the label-style fields existed carries neither, so
+        // fall back to the house default rather than draw nothing.
+        loaded.forEach((d) => designs.push({
+          font: 'sans', text_size_mm: 0, ...d, design_id: d.design_id || newId(),
+        }));
         job.name = data.job_name || job.name;
         job.project = data.project || '';
         job.client = data.client || '';

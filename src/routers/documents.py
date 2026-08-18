@@ -47,6 +47,16 @@ def list_documents() -> List[DocumentInfo]:
     return STORE.list_documents()
 
 
+@router.delete("/documents", response_model=OperationResult)
+def close_all_documents() -> OperationResult:
+    """Unload every open PDF at once."""
+    closed = STORE.clear_documents()
+    return OperationResult(
+        status="success",
+        message=f"Closed {closed} document{'' if closed == 1 else 's'}",
+    )
+
+
 @router.get("/documents/{doc_id}", response_model=DocumentInfo)
 def get_document(doc_id: str) -> DocumentInfo:
     return describe_or_404(doc_id)

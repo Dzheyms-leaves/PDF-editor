@@ -53,6 +53,30 @@ def test_document_lifecycle(client, simple_pdf):
     assert client.get(f"/api/documents/{doc_id}").status_code == 404
 
 
+def test_clear_all_closes_every_document_but_keeps_the_assets(client, simple_pdf,
+                                                              logo_png):
+    """Clearing the workspace is about documents. A stamp logo is not one.
+
+    Losing the saved logos to a "close all" would be a nasty surprise, so this
+    pins that only the PDFs go.
+    """
+    upload(client, simple_pdf, "one.pdf")
+    upload(client, simple_pdf, "two.pdf")
+    asset = client.post("/api/assets",
+                        files={"file": ("logo.png", logo_png, "image/png")}).json()
+    assert len(client.get("/api/documents").json()) == 2
+
+    response = client.delete("/api/documents")
+    assert response.status_code == 200
+    assert "2 documents" in response.json()["message"]
+
+    assert client.get("/api/documents").json() == []
+    assert client.get(f"/api/assets/{asset['asset_id']}").status_code == 200
+
+    # Clearing an empty workspace is a no-op, not an error.
+    assert client.delete("/api/documents").status_code == 200
+
+
 def test_missing_document_is_404(client):
     assert client.get("/api/documents/nope").status_code == 404
     assert client.post("/api/documents/nope/pages/rotate",

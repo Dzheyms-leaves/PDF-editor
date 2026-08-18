@@ -74,13 +74,52 @@ def test_layout_fills_the_plate_without_overlap():
         assert button["y"] >= layout["face"]["y"]
         assert button["x"] + button["w"] <= layout["face"]["x"] + layout["face"]["w"] + 0.01
         assert button["y"] + button["h"] <= layout["face"]["y"] + layout["face"]["h"] + 0.01
-        # The engraving area must sit clear of the indicator LED.
-        assert button["text"]["x"] > button["led"]["cx"] + button["led"]["r"]
-        assert button["text"]["w"] > 0
+        # The engraving area must sit clear of the indicator LED, on whichever
+        # side of the panel that button's indicator lives.
+        text = button["text"]
+        if button["side"] == "right":
+            assert text["x"] + text["w"] < button["led"]["cx"] - button["led"]["r"]
+        else:
+            assert text["x"] > button["led"]["cx"] + button["led"]["r"]
+        assert text["w"] > 0
 
     # Two columns, three rows, no two buttons sharing a slot.
     positions = {(b["row"], b["column"]) for b in layout["buttons"]}
     assert len(positions) == 6
+
+
+def test_the_right_hand_column_mirrors_the_left():
+    """The indicator belongs at the outer edge of its own column.
+
+    A dot drawn on the left of a right-hand button would be sitting in the
+    middle of the panel, nowhere near the part it is meant to describe.
+    """
+    layout = catalogue.layout("B", "P", "A", 6)
+    centre = layout["width_mm"] / 2
+
+    for button in layout["buttons"]:
+        led = button["led"]["cx"]
+        if button["column"] == 0:
+            assert button["side"] == "left"
+            assert led < centre
+            assert led - button["x"] < button["x"] + button["w"] - led
+            assert button["text"]["align"] == "left"
+        else:
+            assert button["side"] == "right"
+            assert led > centre
+            assert button["x"] + button["w"] - led < led - button["x"]
+            assert button["text"]["align"] == "right"
+
+    # Mirrored, so a label has the same room to breathe in either column.
+    widths = {round(b["text"]["w"], 2) for b in layout["buttons"]}
+    assert len(widths) == 1
+
+
+def test_a_two_button_panel_still_mirrors():
+    layout = catalogue.layout("B", "P", "A", 2)
+    left, right = layout["buttons"]
+    assert left["side"] == "left" and right["side"] == "right"
+    assert right["led"]["cx"] > left["led"]["cx"]
 
 
 def test_fewer_buttons_means_taller_buttons():
@@ -427,3 +466,206 @@ def test_engraving_workbook_has_a_sheet_for_each_end_of_the_job(client):
     assert panels[1][0] == "Lobby keypad"
     assert panels[1][4] == "PA6BPA-WA"
     assert panels[1][7] == 4                     # quantity
+
+
+# -------------------------------------------------------------- label style
+
+def test_a_label_is_engraved_at_the_size_asked_for():
+    sizes = render.fitted_sizes(design(text_size_mm=2.0, engraving=[
+        {"index": 0, "lines": ["LOUNGE"]}]))
+    assert sizes[0] == pytest.approx(2.0, abs=0.01)
+
+
+def test_a_label_too_long_for_its_size_shrinks_rather_than_vanishes():
+    """insert_textbox drops an overrunning line in full, so the size gives way."""
+    asked = 4.0
+    sizes = render.fitted_sizes(design(text_size_mm=asked, engraving=[
+        {"index": 0, "lines": ["PLANT ROOM EXTRACT"]}]))
+    assert 0 < sizes[0] < asked
+
+
+def _label_fonts(data: bytes, label: str) -> set:
+    from src.pdfcompat import pymupdf
+
+    doc = pymupdf.open(stream=data)
+    try:
+        return {span["font"] for block in doc[0].get_text("dict")["blocks"]
+                for line in block.get("lines", []) for span in line["spans"]
+                if span["text"].strip() == label}
+    finally:
+        doc.close()
+
+
+def test_the_chosen_font_reaches_the_page():
+    panel = dict(engraving=[{"index": 0, "lines": ["LOUNGE"]}])
+    serif = _label_fonts(render.spec_sheet([design(font="serif", **panel)]), "LOUNGE")
+    sans = _label_fonts(render.spec_sheet([design(**panel)]), "LOUNGE")
+
+    assert any("Times" in name for name in serif)
+    assert not any("Times" in name for name in sans)
+
+
+def test_an_unknown_font_is_refused_rather_than_quietly_swapped():
+    with pytest.raises(ValueError, match="font"):
+        catalogue.engraving_font("comic")
+    with pytest.raises(ValueError, match="taller"):
+        catalogue.text_size_mm(catalogue.MAX_TEXT_MM + 1)
+
+
+def test_check_says_when_a_label_will_not_fit_at_the_size_asked_for(client):
+    result = client.post("/api/designer/check", json=design(
+        text_size_mm=4.0,
+        engraving=[{"index": 0, "lines": ["PLANT ROOM EXTRACT"]}])).json()
+    assert result["ok"]
+    assert any("Position 1" in w and "4 mm" in w for w in result["warnings"])
+
+
+def test_check_rejects_a_font_the_laser_has_never_heard_of(client):
+    result = client.post("/api/designer/check", json=design(font="comic")).json()
+    assert not result["ok"]
+
+
+# --------------------------------------------------------------- order form
+
+def _registration_box(page):
+    """The plate outline the corner marks describe, in points."""
+    from src.pdfcompat import pymupdf
+
+    verticals, horizontals = [], []
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            if item[0] != "l":
+                continue
+            start, end = item[1], item[2]
+            if abs(abs(start.x - end.x) + abs(start.y - end.y)
+                   - render.TICK_LEN) > 0.01:
+                continue
+            if abs(start.x - end.x) < 0.01:
+                verticals.append(start.x)
+            else:
+                horizontals.append(start.y)
+    return pymupdf.Rect(min(verticals), min(horizontals),
+                        max(verticals), max(horizontals))
+
+
+def test_order_form_marks_the_plate_at_full_size():
+    """The marks are what the operator lines the part up against.
+
+    Anything but 1:1 makes the sheet useless, and nothing on screen would say
+    so, which is why the scale is pinned here.
+    """
+    from src.pdfcompat import pymupdf
+
+    doc = pymupdf.open(stream=render.order_form([design()], "riverside"))
+    try:
+        page = doc[0]
+        assert (round(page.rect.width), round(page.rect.height)) == (842, 595)
+        box = _registration_box(page)
+        assert box.width / render.MM == pytest.approx(75.0, abs=0.05)
+        assert box.height / render.MM == pytest.approx(116.0, abs=0.05)
+    finally:
+        doc.close()
+
+
+def test_order_form_engraves_each_label_inside_its_own_button():
+    from src.pdfcompat import pymupdf
+
+    panel = design(engraving=[
+        {"index": 0, "lines": ["LOUNGE"]},
+        {"index": 1, "lines": ["WINE ROOM"]},
+        {"index": 5, "lines": ["ALL OFF"]},
+    ])
+    layout = catalogue.layout("B", "P", "A", 6)
+    areas = {b["index"]: b["text"] for b in layout["buttons"]}
+
+    doc = pymupdf.open(stream=render.order_form([panel]))
+    try:
+        page = doc[0]
+        box = _registration_box(page)
+        found = {}
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["bbox"][1] < box.y1:          # artwork, not the block
+                        found[span["text"].strip()] = span["bbox"]
+    finally:
+        doc.close()
+
+    assert set(found) == {"LOUNGE", "WINE ROOM", "ALL OFF"}
+    for index, label in ((0, "LOUNGE"), (1, "WINE ROOM"), (5, "ALL OFF")):
+        left, _top, right, _bottom = found[label]
+        area = areas[index]
+        assert (left - box.x0) / render.MM >= area["x"] - 0.2
+        assert (right - box.x0) / render.MM <= area["x"] + area["w"] + 0.2
+
+
+def test_order_form_labels_hug_the_indicator_in_either_column():
+    """Mirrored on the page as on the part: left column reads from the left."""
+    from src.pdfcompat import pymupdf
+
+    panel = design(engraving=[{"index": 0, "lines": ["ON"]},
+                              {"index": 1, "lines": ["ON"]}])
+    doc = pymupdf.open(stream=render.order_form([panel]))
+    try:
+        page = doc[0]
+        box = _registration_box(page)
+        spans = sorted((span["bbox"] for block in page.get_text("dict")["blocks"]
+                        for line in block.get("lines", []) for span in line["spans"]
+                        if span["text"].strip() == "ON"
+                        and span["bbox"][1] >= box.y0 and span["bbox"][3] <= box.y1),
+                       key=lambda b: b[0])
+    finally:
+        doc.close()
+
+    assert len(spans) == 2
+    layout = catalogue.layout("B", "P", "A", 6)
+    areas = {b["index"]: b["text"] for b in layout["buttons"]}
+    # The left label starts at its area's left edge; the right one ends at its
+    # area's right edge, which is where each column's indicator sits.
+    assert (spans[0][0] - box.x0) / render.MM == pytest.approx(areas[0]["x"], abs=0.4)
+    assert ((spans[1][2] - box.x0) / render.MM
+            == pytest.approx(areas[1]["x"] + areas[1]["w"], abs=0.4))
+
+
+def test_order_form_carries_the_panel_identity_and_its_engraving():
+    from src.pdfcompat import pymupdf
+
+    panel = design(name="lcp 1", order_12nc="913703057009")
+    doc = pymupdf.open(stream=render.order_form([panel], "riverside"))
+    try:
+        text = doc[0].get_text()
+    finally:
+        doc.close()
+
+    for expected in ("Product code: PA6BPA-WA", "12NC: 913703057009",
+                     "Panel Name: lcp 1", "Orientation: Portrait",
+                     "Style: American", "Type: Button", "Button Colour: White",
+                     "ENGRAVING"):
+        assert expected in text, f"{expected!r} missing from the order form"
+
+    # The words appear twice over: cut into the artwork, and listed in the
+    # block where the reference form prints a logo.
+    assert text.count("WELCOME") == 2
+
+
+def test_order_form_is_one_sheet_per_panel_and_needs_a_panel():
+    from src.pdfcompat import pymupdf
+
+    doc = pymupdf.open(stream=render.order_form(
+        [design(), design(design_id="d2", region="E", buttons=4)]))
+    try:
+        assert doc.page_count == 2
+        assert all(page.rect.width > page.rect.height for page in doc)
+    finally:
+        doc.close()
+
+    with pytest.raises(ValueError):
+        render.order_form([])
+
+
+def test_order_form_download_is_named_for_the_job(client):
+    response = client.post("/api/designer/export", json={
+        "designs": [design()], "job_name": "riverside", "fmt": "order"})
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert "riverside-order-form.pdf" in response.headers["content-disposition"]

@@ -99,6 +99,11 @@ makes a change permanent; pulling a branch is just a look.
 
 ## The six modes
 
+Open documents with **Open PDFs** or by dropping them anywhere in the window;
+each gets a tab, and every mode works on the tab you have in front of you.
+**Clear all** unloads the lot in one go — it asks first, and it leaves the saved
+stamp logos and job folders alone.
+
 ### Edit
 A genuine PDF editor, not a viewer with annotations bolted on.
 
@@ -183,11 +188,26 @@ PA 6 B P A - W A
 └───────────────── Antumbra range
 ```
 
-Three outputs:
+Each column of buttons is a mirror of the other, as the part is: the indicator
+dot sits at the outer edge of its own column, so the right-hand dots are on the
+right of the panel, and each label reads away from its own dot.
+
+**Font and size.** Labels are cut in Helvetica, Times or Courier, regular or
+bold, at a size you pick in millimetres or fitted automatically to the button. A
+label too long for the size you asked for is engraved smaller rather than
+dropped, and the check panel says which position had to give way.
+
+Five outputs:
 
 - **Spec sheet PDF** — one page per panel: a **1:1** front elevation you can
   print at 100% and hold the part against, numbered position callouts, the
   finish block with colour swatches, and the engraving schedule.
+- **Order form PDF** — the landscape sheet Dynalite issue with a panel order:
+  the engraving artwork alone, at **1:1** inside registration marks the operator
+  lines the part up against, over a title block carrying the creation date,
+  product code, 12NC, panel name and style. Where the manufacturer's form prints
+  its logo, this one lists the words and icons themselves, position by position,
+  so the sheet says what is being cut without anyone measuring the artwork.
 - **Schedule CSV** — one row per engraved position with the order details
   repeated, so it reads as both a laser schedule and a checkable order line.
 - **Engraving workbook (Excel)** — two sheets: *Engraving*, every position on

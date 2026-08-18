@@ -150,6 +150,19 @@ class DocumentStore:
         if entry and entry.path.exists():
             entry.path.unlink(missing_ok=True)
 
+    def clear_documents(self) -> int:
+        """Close every open document, leaving assets and jobs alone.
+
+        Deliberately not :meth:`reset`: the stamp logos and job folders are not
+        documents, and losing them to a "close all" would be a nasty surprise.
+        """
+        with self._lock:
+            entries = list(self.documents.values())
+            self.documents.clear()
+        for entry in entries:
+            entry.path.unlink(missing_ok=True)
+        return len(entries)
+
     def list_documents(self) -> List[DocumentInfo]:
         return [self.describe(d) for d in list(self.documents.keys())]
 
