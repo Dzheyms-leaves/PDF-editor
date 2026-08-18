@@ -103,20 +103,25 @@ window.UI = (() => {
     return close;
   }
 
+  /* Closing the dialog is what answers it. An earlier version resolved inside
+     the button handlers as well, and since `close()` runs `onClose` first, the
+     promise had already settled on `false` by then — every confirmed action
+     silently did nothing. The answer is recorded, then the close resolves. */
   function confirm(message, { title = 'Are you sure?', danger = false } = {}) {
     return new Promise((resolve) => {
+      let answer = false;
       modal({
         title,
         body: el('p', { text: message, style: 'margin:0; line-height:1.6;' }),
         actions: [
-          { label: 'Cancel', onClick: (close) => { close(); resolve(false); } },
+          { label: 'Cancel', onClick: (close) => close() },
           {
             label: danger ? 'Yes, do it' : 'Continue',
             kind: danger ? 'danger' : 'primary',
-            onClick: (close) => { close(); resolve(true); },
+            onClick: (close) => { answer = true; close(); },
           },
         ],
-        onClose: () => resolve(false),
+        onClose: () => resolve(answer),
       });
     });
   }

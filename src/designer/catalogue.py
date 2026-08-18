@@ -76,13 +76,33 @@ class Region:
     height_mm: float
     mounting: str
     short: str = ""    # compact form, for order lines
+    style: str = ""    # the word Dynalite prints on an order form
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "code": self.code, "name": self.name, "width_mm": self.width_mm,
             "height_mm": self.height_mm, "mounting": self.mounting,
-            "short": self.short,
+            "short": self.short, "style": self.style,
         }
+
+
+@dataclass(frozen=True)
+class EngravingFont:
+    """A typeface the laser can cut, in both the browser and the PDF.
+
+    ``pdf`` is a base-14 name so the spec sheet needs no embedded font file and
+    the packaged executable stays a single binary.
+    """
+
+    id: str
+    name: str
+    pdf: str
+    css: str
+    weight: str = "normal"
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"id": self.id, "name": self.name, "css": self.css,
+                "weight": self.weight}
 
 
 @dataclass(frozen=True)
@@ -128,8 +148,8 @@ FAMILIES: Tuple[Family, ...] = (
 
 REGIONS: Tuple[Region, ...] = (
     Region("A", "Australian / American", 75.0, 116.0,
-           "US 1-gang / AU vertical wall box", "AU/US"),
-    Region("E", "European", 86.0, 86.0, "EU 60 mm flush box", "EU"),
+           "US 1-gang / AU vertical wall box", "AU/US", "American"),
+    Region("E", "European", 86.0, 86.0, "EU 60 mm flush box", "EU", "European"),
 )
 
 SERIES: Tuple[Series, ...] = (
@@ -145,14 +165,32 @@ BACKLIGHTS: Tuple[Tuple[str, str, str], ...] = (
     ("red", "Red", "#DE7A6E"),
 )
 
+ENGRAVING_FONTS: Tuple[EngravingFont, ...] = (
+    EngravingFont("sans", "Helvetica", "helv", "Helvetica, Arial, sans-serif"),
+    EngravingFont("sans-bold", "Helvetica Bold", "hebo",
+                  "Helvetica, Arial, sans-serif", "bold"),
+    EngravingFont("serif", "Times", "tiro", "'Times New Roman', Times, serif"),
+    EngravingFont("serif-bold", "Times Bold", "tibo",
+                  "'Times New Roman', Times, serif", "bold"),
+    EngravingFont("mono", "Courier", "cour", "'Courier New', Courier, monospace"),
+)
+
 MAX_LINES = 2
 MAX_CHARS_PER_LINE = 14
+
+DEFAULT_FONT = "sans"
+AUTO_TEXT_MM = 3.0        # the cap an automatically fitted label works down from
+MAX_TEXT_MM = 6.0
+# Offered in the designer; a label still shrinks below its chosen size rather
+# than overrun the button, because an overrunning line is dropped in full.
+TEXT_SIZES_MM: Tuple[float, ...] = (1.8, 2.0, 2.2, 2.5, 2.8, 3.0, 3.5, 4.0)
 
 _BUTTON_BY_CODE = {f.code: f for f in BUTTON_FINISHES}
 _RIM_BY_CODE = {f.code: f for f in RIM_FINISHES}
 _FAMILY_BY_CODE = {f.code: f for f in FAMILIES}
 _REGION_BY_CODE = {r.code: r for r in REGIONS}
 _SERIES_BY_CODE = {s.code: s for s in SERIES}
+_FONT_BY_ID = {f.id: f for f in ENGRAVING_FONTS}
 
 
 # ------------------------------------------------------------------ colours
@@ -237,6 +275,24 @@ def series(code: str) -> Series:
     return _SERIES_BY_CODE[code]
 
 
+def engraving_font(code: Optional[str] = None) -> EngravingFont:
+    """The typeface a design engraves in; blank means the house default."""
+    found = _FONT_BY_ID.get((code or DEFAULT_FONT).strip() or DEFAULT_FONT)
+    if found is None:
+        raise ValueError(f"Unknown engraving font '{code}'")
+    return found
+
+
+def text_size_mm(value: Optional[float] = None) -> float:
+    """A requested label height in millimetres, or 0 to fit each button."""
+    size = float(value or 0.0)
+    if size <= 0:
+        return 0.0
+    if size > MAX_TEXT_MM:
+        raise ValueError(f"An engraved label cannot be taller than {MAX_TEXT_MM:g} mm")
+    return size
+
+
 def button_slots(family_code: str, buttons: int) -> int:
     """How many engravable positions a configuration has."""
     fam = _FAMILY_BY_CODE[family_code]
@@ -251,10 +307,10 @@ def button_slots(family_code: str, buttons: int) -> int:
 # the elevation, not manufacturing tolerances.
 _FIELD_PAD = 3.5      # gap between the rim aperture and the button block
 _GAP = 2.2            # gap between adjacent buttons
-_LED_INSET = 5.0      # indicator centre, in from the button's left edge
+_LED_INSET = 5.0      # indicator centre, in from the button's outer edge
 _LED_R = 1.35
-_TEXT_LEFT = 8.4      # engraving area starts here, in from the button's left
-_TEXT_RIGHT = 2.6     # clear margin at the button's right edge
+_TEXT_OUTER = 8.4     # engraving area starts here, clear of the indicator
+_TEXT_INNER = 2.6     # clear margin at the button's inner edge
 
 
 def layout(family_code: str, series_code: str, region_code: str,
@@ -310,11 +366,20 @@ def layout(family_code: str, series_code: str, region_code: str,
     # with hairlines rather than moulded gaps.
     zone = fam.code == "T"
 
+    # The two columns are mirror images: each indicator sits at the outer edge
+    # of its own column, so the right-hand dots land on the right of the panel
+    # and the label reads away from them, which is how the part is made.
     for index in range(slots):
         row, column = divmod(index, columns)
         x = grid_x + column * (button_w + _GAP)
         y = grid_y + row * (button_h + _GAP)
-        text_left = x + _TEXT_LEFT
+        mirrored = column == columns - 1
+        if mirrored:
+            led_cx = x + button_w - _LED_INSET
+            text_left = x + _TEXT_INNER
+        else:
+            led_cx = x + _LED_INSET
+            text_left = x + _TEXT_OUTER
         result["buttons"].append({
             "index": index,
             "row": row,
@@ -323,12 +388,14 @@ def layout(family_code: str, series_code: str, region_code: str,
             "w": round(button_w, 2), "h": round(button_h, 2),
             "r": 1.6 if not zone else 0.8,
             "zone": zone,
-            "led": {"cx": round(x + _LED_INSET, 2),
+            "side": "right" if mirrored else "left",
+            "led": {"cx": round(led_cx, 2),
                     "cy": round(y + button_h / 2, 2), "r": _LED_R},
             "text": {"x": round(text_left, 2),
                      "y": round(y, 2),
-                     "w": round(x + button_w - _TEXT_RIGHT - text_left, 2),
-                     "h": round(button_h, 2)},
+                     "w": round(button_w - _TEXT_OUTER - _TEXT_INNER, 2),
+                     "h": round(button_h, 2),
+                     "align": "right" if mirrored else "left"},
         })
     return result
 
@@ -381,5 +448,8 @@ def as_dict() -> Dict[str, Any]:
         "backlights": [{"id": i, "name": n, "hex": h} for i, n, h in BACKLIGHTS],
         "icons": icon_lib.catalogue(),
         "icon_groups": icon_lib.GROUPS,
-        "limits": {"max_lines": MAX_LINES, "max_chars": MAX_CHARS_PER_LINE},
+        "fonts": [f.as_dict() for f in ENGRAVING_FONTS],
+        "text_sizes_mm": list(TEXT_SIZES_MM),
+        "limits": {"max_lines": MAX_LINES, "max_chars": MAX_CHARS_PER_LINE,
+                   "auto_text_mm": AUTO_TEXT_MM, "max_text_mm": MAX_TEXT_MM},
     }

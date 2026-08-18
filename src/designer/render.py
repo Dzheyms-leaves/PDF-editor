@@ -28,6 +28,7 @@ MUTED = (0.42, 0.41, 0.38)
 HAIRLINE = (0.72, 0.71, 0.68)
 RULE = (0.88, 0.87, 0.85)
 ACCENT = (0.62, 0.44, 0.18)
+ARTWORK_INK = (0.0, 0.0, 0.0)     # engraving artwork is cut, not printed
 
 
 def _rgb(hex_colour: str) -> Tuple[float, float, float]:
@@ -73,13 +74,110 @@ def _line(page: Any, x: float, y: float, width: float, text: str, *,
     return size * 1.34
 
 
+# -------------------------------------------------------- engraving layout
+
+# Worked out in millimetres and kept clear of any page, so the spec sheet, the
+# order form and the pre-flight check all place a label identically.
+
+ALIGN_LEFT, ALIGN_CENTRE, ALIGN_RIGHT = 0, 1, 2
+
+
+def engraved_lines(item: Dict[str, Any]) -> List[str]:
+    """The non-blank rows of one position's label, in order."""
+    return [str(line).strip() for line in item.get("lines", []) if str(line).strip()]
+
+
+def text_align(button: Dict[str, Any], item: Dict[str, Any]) -> int:
+    """A label reads away from its indicator, so the two columns mirror."""
+    if item.get("icon") and item.get("icon_side") == "top":
+        return ALIGN_CENTRE
+    return (ALIGN_RIGHT if button["text"].get("align") == "right" else ALIGN_LEFT)
+
+
+def engraving_boxes(button: Dict[str, Any], item: Dict[str, Any], has_icon: bool,
+                    has_lines: bool) -> Tuple[Optional[Tuple[float, float, float]],
+                                              Optional[Tuple[float, float, float, float]]]:
+    """Where the icon and the text sit inside one button, in millimetres.
+
+    Returns ``((icon_x, icon_y, icon_side), (text_x, text_y, text_w, text_h))``,
+    either of which is ``None`` when that part is not engraved. On the right-hand
+    column the icon swaps to the far side so it stays beside the indicator and
+    the panel reads symmetrically.
+    """
+    area = button["text"]
+    left, top, width, height = area["x"], area["y"], area["w"], area["h"]
+    mirrored = area.get("align") == "right"
+
+    if has_icon and has_lines and item.get("icon_side") != "top":
+        side = min(height * 0.52, width * 0.34)
+        gap = side * 0.28
+        if mirrored:
+            return ((left + width - side, top + (height - side) / 2, side),
+                    (left, top, width - side - gap, height))
+        return ((left, top + (height - side) / 2, side),
+                (left + side + gap, top, width - side - gap, height))
+
+    if has_icon and has_lines:                      # icon above the text
+        side = min(height * 0.42, width * 0.5)
+        return ((left + (width - side) / 2, top + height * 0.14, side),
+                (left, top + height * 0.14 + side, width, height * 0.86 - side))
+
+    if has_icon:
+        side = min(height * 0.6, width * 0.7)
+        return ((left + (width - side) / 2, top + (height - side) / 2, side), None)
+
+    return (None, (left, top, width, height))
+
+
+def label_size(lines: Sequence[str], width: float, height: float, font: str,
+               requested: float = 0.0) -> float:
+    """The size a label is engraved at, given the room it has.
+
+    A requested size is honoured until it would overrun the button: an
+    overrunning line is dropped in full by ``insert_textbox``, so it is always
+    the size that gives way, never the text.
+    """
+    ceiling = height / (len(lines) + 1.1)
+    ideal = min(requested or catalogue.AUTO_TEXT_MM * MM, ceiling)
+    return min(_fit_size(line, width, ideal, font) for line in lines)
+
+
+def fitted_sizes(design: Dict[str, Any]) -> Dict[int, float]:
+    """The height, in millimetres, each engraved position is actually cut at."""
+    layout = catalogue.layout(design["family"], design["series"], design["region"],
+                              design["buttons"])
+    font = catalogue.engraving_font(design.get("font"))
+    requested = catalogue.text_size_mm(design.get("text_size_mm")) * MM
+    by_index = {int(item.get("index", -1)): item
+                for item in design.get("engraving", [])}
+
+    sizes: Dict[int, float] = {}
+    for button in layout["buttons"]:
+        item = by_index.get(button["index"], {})
+        lines = engraved_lines(item)
+        if not lines:
+            continue
+        _icon_box, text_box = engraving_boxes(
+            button, item, bool(icon_lib.get(item.get("icon") or "")), True)
+        if not text_box:
+            continue
+        _x, _y, width, height = text_box
+        sizes[button["index"]] = label_size(
+            lines, width * MM, height * MM, font.pdf, requested) / MM
+    return sizes
+
+
 # ------------------------------------------------------------------- panel
 
 class PanelPainter:
-    """Draws one panel elevation onto a page at a given scale."""
+    """Draws one panel elevation onto a page at a given scale.
+
+    In ``artwork`` mode only the engraving is drawn, in black on nothing: that
+    is what the laser cuts, and it is the form the Dynalite order form takes.
+    """
 
     def __init__(self, page: Any, design: Dict[str, Any], origin: Tuple[float, float],
-                 scale: float = MM):
+                 scale: float = MM, artwork: bool = False):
         self.page = page
         self.design = design
         self.ox, self.oy = origin
@@ -88,7 +186,10 @@ class PanelPainter:
             design["family"], design["series"], design["region"], design["buttons"])
         self.button_finish = catalogue.button_finish(design["button_finish"])
         self.rim_finish = catalogue.rim_finish(design["rim_finish"])
-        self.ink = _rgb(catalogue.ink_for(self.button_finish.hex))
+        self.ink = ARTWORK_INK if artwork else _rgb(
+            catalogue.ink_for(self.button_finish.hex))
+        self.font = catalogue.engraving_font(design.get("font"))
+        self.text_mm = catalogue.text_size_mm(design.get("text_size_mm"))
 
     # -- coordinate helpers ------------------------------------------------
 
@@ -122,6 +223,11 @@ class PanelPainter:
             self._draw_screen()
         for button in self.layout["buttons"]:
             self._draw_button(button)
+
+    def draw_artwork(self) -> None:
+        """Only the engraving, positioned exactly where it lands on the part."""
+        for button in self.layout["buttons"]:
+            self._draw_engraving(button)
 
     def _draw_plate(self) -> None:
         plate, face = self.layout["plate"], self.layout["face"]
@@ -178,97 +284,34 @@ class PanelPainter:
 
     def _draw_engraving(self, button: Dict[str, Any]) -> None:
         item = self._engraving_for(button["index"])
-        lines = [str(line).strip() for line in item.get("lines", []) if str(line).strip()]
+        lines = engraved_lines(item)
         icon = icon_lib.get(item.get("icon") or "")
         if not lines and not icon:
             return
 
-        area = button["text"]
-        left, top = self.x(area["x"]), self.y(area["y"])
-        width, height = area["w"] * self.scale, area["h"] * self.scale
-        side = item.get("icon_side", "left")
-
-        if icon and lines and side == "left":
-            icon_side = min(height * 0.52, width * 0.34)
-            self._draw_icon(icon, (left, top + (height - icon_side) / 2, icon_side))
-            gap = icon_side * 0.28
-            self._draw_lines(lines, left + icon_side + gap, top,
-                             width - icon_side - gap, height)
-        elif icon and lines:                       # icon above the text
-            icon_side = min(height * 0.42, width * 0.5)
-            self._draw_icon(icon, (left + (width - icon_side) / 2,
-                                   top + height * 0.14, icon_side))
-            self._draw_lines(lines, left, top + height * 0.14 + icon_side,
-                             width, height * 0.86 - icon_side, align=1)
-        elif icon:
-            icon_side = min(height * 0.6, width * 0.7)
-            self._draw_icon(icon, (left + (width - icon_side) / 2,
-                                   top + (height - icon_side) / 2, icon_side))
-        else:
-            self._draw_lines(lines, left, top, width, height)
+        icon_box, text_box = engraving_boxes(button, item, bool(icon), bool(lines))
+        if icon and icon_box:
+            x0, y0, side = icon_box
+            self._draw_icon(icon, (self.x(x0), self.y(y0), side * self.scale))
+        if lines and text_box:
+            x0, y0, width, height = text_box
+            self._draw_lines(lines, self.x(x0), self.y(y0), width * self.scale,
+                             height * self.scale, align=text_align(button, item))
 
     def _draw_lines(self, lines: List[str], left: float, top: float,
                     width: float, height: float, align: int = 0) -> None:
-        ideal = min(height / (len(lines) + 1.1), 3.0 * self.scale)
-        size = min(_fit_size(line, width, ideal) for line in lines)
+        size = label_size(lines, width, height, self.font.pdf,
+                          self.text_mm * self.scale)
         leading = size * 1.24
         cursor = top + (height - leading * len(lines)) / 2
 
         for line in lines:
             _line(self.page, left, cursor, width, line, size=size,
-                  color=self.ink, align=align)
+                  font=self.font.pdf, color=self.ink, align=align)
             cursor += leading
 
     def _draw_icon(self, icon: Dict[str, Any], box: Tuple[float, float, float]) -> None:
-        """Render an icon from the shared library into a square box."""
-        x0, y0, size = box
-        stroke = max(0.35, size * 0.075)
-
-        def px(value: float) -> float:
-            return x0 + value / 100.0 * size
-
-        def py(value: float) -> float:
-            return y0 + value / 100.0 * size
-
-        def points(flat: Sequence[float]) -> List[Point]:
-            return [Point(px(flat[i]), py(flat[i + 1])) for i in range(0, len(flat), 2)]
-
-        strokes = self.page.new_shape()
-        drew_stroke = False
-        fills = self.page.new_shape()
-        drew_fill = False
-
-        for item in icon["shapes"]:
-            kind = item[0]
-            if kind == "line":
-                strokes.draw_line(Point(px(item[1]), py(item[2])),
-                                  Point(px(item[3]), py(item[4])))
-                drew_stroke = True
-            elif kind == "poly":
-                pts = points(item[1])
-                if item[2] and len(pts) > 2:
-                    pts = pts + [pts[0]]
-                strokes.draw_polyline(pts)
-                drew_stroke = True
-            elif kind == "circle":
-                strokes.draw_circle(Point(px(item[1]), py(item[2])),
-                                    item[3] / 100.0 * size)
-                drew_stroke = True
-            elif kind == "fpoly":
-                fills.draw_polyline(points(item[1]))
-                drew_fill = True
-            elif kind == "disc":
-                fills.draw_circle(Point(px(item[1]), py(item[2])),
-                                  item[3] / 100.0 * size)
-                drew_fill = True
-
-        if drew_stroke:
-            strokes.finish(color=self.ink, width=stroke, lineCap=1, lineJoin=1,
-                           closePath=False)
-            strokes.commit()
-        if drew_fill:
-            fills.finish(color=self.ink, fill=self.ink, width=0.1, closePath=True)
-            fills.commit()
+        _icon_shapes(self.page, icon, box, self.ink)
 
     # -- annotation --------------------------------------------------------
 
@@ -324,6 +367,59 @@ class PanelPainter:
         width, height = self.size
         return (self.x(self.layout["width_mm"]) + self.DIM_GAP + 10,
                 self.y(self.layout["height_mm"]) + self.DIM_GAP + 22)
+
+
+def _icon_shapes(page: Any, icon: Dict[str, Any], box: Tuple[float, float, float],
+                 ink: Sequence[float]) -> None:
+    """Render an icon from the shared library into a square box."""
+    x0, y0, size = box
+    stroke = max(0.35, size * 0.075)
+
+    def px(value: float) -> float:
+        return x0 + value / 100.0 * size
+
+    def py(value: float) -> float:
+        return y0 + value / 100.0 * size
+
+    def points(flat: Sequence[float]) -> List[Point]:
+        return [Point(px(flat[i]), py(flat[i + 1])) for i in range(0, len(flat), 2)]
+
+    strokes = page.new_shape()
+    drew_stroke = False
+    fills = page.new_shape()
+    drew_fill = False
+
+    for item in icon["shapes"]:
+        kind = item[0]
+        if kind == "line":
+            strokes.draw_line(Point(px(item[1]), py(item[2])),
+                              Point(px(item[3]), py(item[4])))
+            drew_stroke = True
+        elif kind == "poly":
+            pts = points(item[1])
+            if item[2] and len(pts) > 2:
+                pts = pts + [pts[0]]
+            strokes.draw_polyline(pts)
+            drew_stroke = True
+        elif kind == "circle":
+            strokes.draw_circle(Point(px(item[1]), py(item[2])),
+                                item[3] / 100.0 * size)
+            drew_stroke = True
+        elif kind == "fpoly":
+            fills.draw_polyline(points(item[1]))
+            drew_fill = True
+        elif kind == "disc":
+            fills.draw_circle(Point(px(item[1]), py(item[2])),
+                              item[3] / 100.0 * size)
+            drew_fill = True
+
+    if drew_stroke:
+        strokes.finish(color=ink, width=stroke, lineCap=1, lineJoin=1,
+                       closePath=False)
+        strokes.commit()
+    if drew_fill:
+        fills.finish(color=ink, fill=ink, width=0.1, closePath=True)
+        fills.commit()
 
 
 # ------------------------------------------------------------- spec sheet
@@ -392,6 +488,12 @@ def _spec_block(page: Any, design: Dict[str, Any], left: float, top: float,
         cursor += swatch_h + 5
 
     cursor += 5
+    font = catalogue.engraving_font(design.get("font"))
+    asked = catalogue.text_size_mm(design.get("text_size_mm"))
+    cursor += _line(page, left, cursor, width,
+                    f"Engraving: {font.name}, "
+                    + (f"{asked:g} mm" if asked else "fitted to each button"),
+                    size=8, color=MUTED) + 3
     cursor += _line(page, left, cursor, width,
                     f"Quantity: {int(design.get('quantity') or 1)}",
                     size=9, font=FONT_BOLD) + 2
@@ -520,6 +622,230 @@ def spec_sheet(designs: Sequence[Dict[str, Any]], job_name: str = "",
         doc.set_metadata({
             "title": f"Antumbra engraving specification - {job_name or 'job'}",
             "subject": "Antumbra panel configuration and engraving schedule",
+            "creator": "PDF Workbench - Antumbra designer",
+        })
+        return doc.tobytes(garbage=3, deflate=True)
+    finally:
+        doc.close()
+
+
+# -------------------------------------------------------------- order form
+
+# A landscape sheet in the shape of the Dynalite panel order form: engraving
+# artwork at 1:1 inside registration marks, and a title block along the foot
+# carrying the product code, the 12NC and the panel's identity. The reference
+# form prints a manufacturer's logo bottom-left; that space is given here to
+# the words and icons themselves, so the sheet says what is being cut without
+# anyone measuring the artwork.
+
+ORDER_W, ORDER_H = 841.89, 595.28      # A4 landscape
+ORDER_MARGIN = 14.0
+BLOCK_H = 85.0                         # title block along the foot
+CELL_H = 26.0                          # one metadata row
+CELL_W = 130.0
+CELL_GAP = 2.0
+CELL_PAD = 3.0
+TICK_LEN = 21.0                        # registration-mark arm
+TICK_GAP = 7.0                         # its clearance from the corner
+ORDER_FONT_SIZE = 8.0
+FRAME = (0.75, 0.75, 0.75)
+
+
+def _order_frame(page: Any) -> Tuple[Rect, Rect]:
+    """Draw the sheet border and the title block, returning both rectangles."""
+    frame = Rect(ORDER_MARGIN, ORDER_MARGIN, ORDER_W - ORDER_MARGIN,
+                 ORDER_H - ORDER_MARGIN)
+    block = Rect(frame.x0, frame.y1 - BLOCK_H, frame.x1, frame.y1 - 1)
+
+    shape = page.new_shape()
+    shape.draw_rect(frame)
+    shape.draw_rect(block)
+    shape.finish(color=FRAME, width=0.5)
+    shape.commit()
+    return frame, block
+
+
+def _order_cell(page: Any, rect: Rect, text: str = "") -> None:
+    shape = page.new_shape()
+    shape.draw_rect(rect)
+    shape.finish(color=INK, width=0.5)
+    shape.commit()
+    if text:
+        _line(page, rect.x0 + CELL_PAD, rect.y0 + 2, rect.width - 2 * CELL_PAD,
+              text, size=ORDER_FONT_SIZE)
+
+
+def _registration_marks(page: Any, box: Rect) -> None:
+    """Corner ticks standing off the panel outline, as the reference form has.
+
+    The outline itself is never drawn: everything inside these marks is cut, so
+    a printed rectangle would be one more thing for the operator to ignore.
+    """
+    shape = page.new_shape()
+    for x, direction in ((box.x0, -1), (box.x1, 1)):
+        for y in (box.y0, box.y1):
+            shape.draw_line(Point(x + direction * TICK_GAP, y),
+                            Point(x + direction * (TICK_GAP + TICK_LEN), y))
+    for y, direction in ((box.y0, -1), (box.y1, 1)):
+        for x in (box.x0, box.x1):
+            shape.draw_line(Point(x, y + direction * TICK_GAP),
+                            Point(x, y + direction * (TICK_GAP + TICK_LEN)))
+    shape.finish(color=INK, width=0.5)
+    shape.commit()
+
+
+def _order_thumbnail(page: Any, design: Dict[str, Any], box: Rect) -> None:
+    """A hairline elevation, small enough to check the panel at a glance."""
+    layout = catalogue.layout(design["family"], design["series"], design["region"],
+                              design["buttons"])
+    scale = min(box.width / layout["width_mm"], box.height / layout["height_mm"])
+    ox = box.x0 + (box.width - layout["width_mm"] * scale) / 2
+    oy = box.y0 + (box.height - layout["height_mm"] * scale) / 2
+
+    def place(item: Dict[str, float]) -> Rect:
+        return Rect(ox + item["x"] * scale, oy + item["y"] * scale,
+                    ox + (item["x"] + item["w"]) * scale,
+                    oy + (item["y"] + item["h"]) * scale)
+
+    shape = page.new_shape()
+    shape.draw_rect(place(layout["plate"]))
+    for button in layout["buttons"]:
+        shape.draw_rect(place(button))
+    if layout["screen"]:
+        shape.draw_rect(place(layout["screen"]))
+    shape.finish(color=MUTED, width=0.5)
+    shape.commit()
+
+
+def _order_legend(page: Any, design: Dict[str, Any], box: Rect, job: str) -> None:
+    """The engraving itself, listed where the reference form prints its logo."""
+    heading = "ENGRAVING"
+    if job:
+        heading += f"   {job}"
+    if design.get("location"):
+        heading += f"   {design['location']}"
+    _line(page, box.x0 + CELL_PAD, box.y0 + 2, box.width - 2 * CELL_PAD, heading,
+          size=7, font=FONT_BOLD, color=MUTED)
+
+    slots = catalogue.button_slots(design["family"], design["buttons"])
+    if slots <= 0:
+        _line(page, box.x0 + CELL_PAD, box.y0 + 16, box.width - 2 * CELL_PAD,
+              "Labelled in software - nothing is engraved on this panel.",
+              size=ORDER_FONT_SIZE, color=MUTED)
+        return
+
+    by_index = {int(item.get("index", -1)): item
+                for item in design.get("engraving", [])}
+    top = box.y0 + 15
+    rows = max(1, (slots + 1) // 2)
+    row_h = min(18.0, (box.y1 - top - 3) / rows)
+    column_w = (box.width - 2 * CELL_PAD) / 2
+
+    painter_ink = ARTWORK_INK
+    for index in range(slots):
+        row, column = divmod(index, 2)
+        x = box.x0 + CELL_PAD + column * column_w
+        y = top + row * row_h
+
+        _line(page, x, y + 1, 12, str(index + 1), size=7.5, font=FONT_BOLD,
+              color=ACCENT)
+        item = by_index.get(index, {})
+        icon = icon_lib.get(item.get("icon") or "")
+        cursor = x + 13
+        if icon:
+            side = min(row_h - 4, 11.0)
+            _icon_shapes(page, icon, (cursor, y + (row_h - side) / 2 - 1, side),
+                         painter_ink)
+            cursor += side + 4
+        words = "  ".join(engraved_lines(item))
+        width = x + column_w - cursor - 6
+        _line(page, cursor, y + 1, width,
+              words or ("icon only" if icon else "blank"),
+              size=_fit_size(words, width, ORDER_FONT_SIZE, FONT, floor=5.0),
+              color=INK if words else MUTED)
+
+
+def order_page(doc: Any, design: Dict[str, Any], job: str, project: str,
+               client: str) -> None:
+    page = doc.new_page(width=ORDER_W, height=ORDER_H)
+    frame, block = _order_frame(page)
+
+    # -- artwork, centred in the space above the title block ---------------
+    layout = catalogue.layout(design["family"], design["series"], design["region"],
+                              design["buttons"])
+    plate_w = layout["width_mm"] * MM
+    plate_h = layout["height_mm"] * MM
+    origin = ((frame.x0 + frame.x1 - plate_w) / 2,
+              (frame.y0 + block.y0 - plate_h) / 2)
+    _registration_marks(page, Rect(origin[0], origin[1],
+                                   origin[0] + plate_w, origin[1] + plate_h))
+    PanelPainter(page, design, origin, artwork=True).draw_artwork()
+
+    # -- title block -------------------------------------------------------
+    right = frame.x1
+    top = block.y0 + 2
+    rows = [top + n * (CELL_H + CELL_GAP) for n in range(3)]
+
+    code = catalogue.part_code(design["family"], design["series"], design["region"],
+                               design["buttons"], design["button_finish"],
+                               design["rim_finish"])
+    today = _dt.date.today()
+    order_12nc = (design.get("order_12nc") or "").strip()
+    region = catalogue.region(design["region"])
+    family = catalogue.family(design["family"])
+    button = catalogue.button_finish(design["button_finish"])
+
+    _order_cell(page, Rect(right - 2 * CELL_W - CELL_GAP, rows[0],
+                           right - CELL_W - CELL_GAP, rows[0] + CELL_H),
+                f"Creation date: {today:%B} {today.day}, {today.year}")
+    _order_cell(page, Rect(right - CELL_W, rows[0], right, rows[0] + CELL_H),
+                f"Product code: {code}")
+    _order_cell(page, Rect(right - 2 * CELL_W - CELL_GAP, rows[1],
+                           right - CELL_W - CELL_GAP, rows[1] + CELL_H),
+                f"12NC: {order_12nc or '____________'}")
+    _order_cell(page, Rect(right - CELL_W, rows[1], right, rows[1] + CELL_H),
+                f"Panel Name: {design.get('name') or 'Panel'}")
+    _order_cell(page, Rect(right - 2 * CELL_W - CELL_GAP, rows[2], right,
+                           rows[2] + CELL_H),
+                f"Style: {region.style}; Type: {family.name.replace('Antumbra', '')}; "
+                f"Button Colour: {button.name}")
+
+    # Orientation cell, with the elevation the reference form draws beside it.
+    orient_right = right - 2 * CELL_W - 2 * CELL_GAP - 1
+    orient = Rect(orient_right - CELL_W, top, orient_right, block.y1 - 1)
+    shape = page.new_shape()
+    shape.draw_rect(orient)
+    shape.finish(color=INK, width=0.5)
+    shape.commit()
+    plate_shape = ("Portrait" if layout["height_mm"] > layout["width_mm"]
+                   else "Landscape" if layout["width_mm"] > layout["height_mm"]
+                   else "Square")
+    _line(page, orient.x0 + CELL_PAD, orient.y0 + 2, orient.width - 2 * CELL_PAD,
+          f"Orientation: {plate_shape}", size=ORDER_FONT_SIZE)
+    _order_thumbnail(page, design, Rect(orient.x0 + 8, orient.y0 + 18,
+                                        orient.x1 - 8, orient.y1 - 6))
+
+    legend = Rect(frame.x0 + 1, top, orient.x0 - CELL_GAP - 1, block.y1 - 1)
+    _order_cell(page, legend)
+    _order_legend(page, design, legend, job or project or client)
+
+
+def order_form(designs: Sequence[Dict[str, Any]], job_name: str = "",
+               project: str = "", client: str = "") -> bytes:
+    """Order forms for a job, one landscape sheet per panel."""
+    if not designs:
+        raise ValueError("There are no panels to export")
+
+    doc = pymupdf.open()
+    try:
+        for design in designs:
+            catalogue.validate(design["family"], design["series"], design["region"],
+                               design["buttons"], design["button_finish"],
+                               design["rim_finish"])
+            order_page(doc, design, job_name, project, client)
+        doc.set_metadata({
+            "title": f"Antumbra order form - {job_name or 'job'}",
+            "subject": "Antumbra panel order form and engraving artwork",
             "creator": "PDF Workbench - Antumbra designer",
         })
         return doc.tobytes(garbage=3, deflate=True)
